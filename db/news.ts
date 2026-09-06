@@ -64,7 +64,8 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
     MIN(s.source_rank) AS sourceRank
     FROM news_events e JOIN news_event_assets a ON a.event_id=e.id
     JOIN news_sources s ON s.event_id=e.id
-    WHERE a.asset_id=? AND datetime(e.event_time)>=datetime('now', '-3 days')
+    WHERE a.asset_id=? AND a.relevance_score>=0.7
+      AND datetime(e.event_time)>=datetime('now', '-3 days')
     GROUP BY e.id`).bind(assetId).all<ScoreEvent>();
   const score = calculateNewsScore(scoreRows.results);
   const latest = await db.prepare(`SELECT i.return_1d AS return1d
@@ -90,14 +91,20 @@ export async function listNews(limit = 50) {
       sentiment, sentiment_score AS sentimentScore, impact_score AS impactScore,
       confidence_score AS confidenceScore, duration_type AS durationType,
       is_duplicate_group AS isDuplicateGroup, created_at AS createdAt
-      FROM news_events ORDER BY event_time DESC, id DESC LIMIT ?`).bind(limit).all(),
+      FROM news_events e WHERE EXISTS (SELECT 1 FROM news_event_assets m
+        WHERE m.event_id=e.id AND m.relevance_score>=0.7)
+      ORDER BY event_time DESC, id DESC LIMIT ?`).bind(limit).all(),
     db.prepare(`SELECT event_id AS eventId, source, source_url AS sourceUrl,
       source_rank AS sourceRank, published_at AS publishedAt FROM news_sources
-      WHERE event_id IN (SELECT id FROM news_events ORDER BY event_time DESC, id DESC LIMIT ?)
+      WHERE event_id IN (SELECT e.id FROM news_events e WHERE EXISTS
+        (SELECT 1 FROM news_event_assets m WHERE m.event_id=e.id AND m.relevance_score>=0.7)
+        ORDER BY event_time DESC, id DESC LIMIT ?)
       ORDER BY source_rank, id`).bind(limit).all(),
     db.prepare(`SELECT m.event_id AS eventId, m.asset_id AS assetId, a.symbol, a.name,
       m.relevance_score AS relevanceScore FROM news_event_assets m JOIN assets a ON a.id=m.asset_id
-      WHERE m.event_id IN (SELECT id FROM news_events ORDER BY event_time DESC, id DESC LIMIT ?)
+      WHERE m.relevance_score>=0.7 AND m.event_id IN (SELECT e.id FROM news_events e WHERE EXISTS
+        (SELECT 1 FROM news_event_assets x WHERE x.event_id=e.id AND x.relevance_score>=0.7)
+        ORDER BY event_time DESC, id DESC LIMIT ?)
       ORDER BY m.relevance_score DESC`).bind(limit).all(),
     db.prepare(`SELECT n.asset_id AS assetId, a.symbol, a.name, n.date, n.score,
       n.event_count AS eventCount, n.divergence FROM news_scores n JOIN assets a ON a.id=n.asset_id

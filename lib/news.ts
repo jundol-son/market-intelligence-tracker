@@ -92,6 +92,7 @@ export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArtic
     const tickerScore = clamp(number(ticker.ticker_sentiment_score), -1, 1);
     const overallScore = clamp(number(row.overall_sentiment_score, tickerScore), -1, 1);
     const relevanceScore = clamp(number(ticker.relevance_score), 0, 1);
+    if (relevanceScore < 0.7) return [];
     const mixed = tickerScore * overallScore < -0.02;
     const sentiment: NewsSentiment = mixed ? 'MIXED'
       : tickerScore >= 0.15 ? 'POSITIVE' : tickerScore <= -0.15 ? 'NEGATIVE' : 'NEUTRAL';
