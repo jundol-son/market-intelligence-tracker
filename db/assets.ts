@@ -17,6 +17,11 @@ export async function listAssets(): Promise<Asset[]> {
   return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));
 }
 
+export async function getAsset(id: number): Promise<Asset | null> {
+  const asset = await getDb().prepare(`${SELECT} WHERE id = ?`).bind(id).first<Asset>();
+  return asset ? { ...asset, enabled: Boolean(asset.enabled) } : null;
+}
+
 export async function createAsset(input: AssetInput): Promise<Asset> {
   const asset = await getDb().prepare(`INSERT INTO assets
     (symbol, name, asset_type, market, currency, benchmark_asset_id, group_id, enabled, importance_weight)

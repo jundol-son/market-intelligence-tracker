@@ -17,8 +17,9 @@ export function apiError(error: unknown): Response {
   return json({ error: message }, /UNIQUE constraint failed/i.test(message) ? 409 : 400);
 }
 
-export function pathId(request: Request): number {
-  const id = Number(new URL(request.url).pathname.split('/').pop());
+export function pathId(request: Request, offset = 0): number {
+  const parts = new URL(request.url).pathname.split('/').filter(Boolean);
+  const id = Number(parts.at(-1 - offset));
   if (!Number.isInteger(id) || id < 1) throw new Error('자산 ID가 올바르지 않습니다.');
   return id;
 }

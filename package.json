@@ -12,8 +12,8 @@
     "lint": "oxlint app db lib vite.config.ts drizzle.config.ts",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
-    "db:local": "wrangler d1 execute DB --local --config wrangler.local.jsonc --file drizzle/0000_sad_jetstream.sql --persist-to .wrangler/state",
-    "test": "node --experimental-strip-types lib/asset.test.ts"
+    "db:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc --persist-to .wrangler/state",
+    "test": "node --experimental-strip-types lib/asset.test.ts && node --experimental-strip-types lib/indicators.test.ts"
   },
   "dependencies": {
     "react": "19.2.6",

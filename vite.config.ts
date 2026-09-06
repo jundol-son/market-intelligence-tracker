@@ -23,6 +23,7 @@ const localBindingConfig = {
           binding: d1,
           database_name: 'site-creator-d1',
           database_id: databaseId,
+          migrations_dir: '../../drizzle',
         },
       ]
     : [],
@@ -58,7 +59,12 @@ export default defineConfig(async ({ command }) => {
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
         config: {
           ...localBindingConfig,
-          vars: command === 'serve' ? { ADMIN_TOKEN: 'local-dev-only' } : {},
+          vars: command === 'serve' ? {
+            ADMIN_TOKEN: 'local-dev-only',
+            ...(process.env.ALPHA_VANTAGE_API_KEY
+              ? { ALPHA_VANTAGE_API_KEY: process.env.ALPHA_VANTAGE_API_KEY }
+              : {}),
+          } : {},
         },
       }),
     ],
