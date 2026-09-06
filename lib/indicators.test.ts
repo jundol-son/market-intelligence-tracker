@@ -19,5 +19,8 @@ const parsed = parseAlphaVantageDaily({
   },
 });
 assert.equal(parsed[0].close, 11);
-assert.throws(() => parseAlphaVantageDaily({ Note: 'rate limited' }), /rate limited/);
+assert.throws(
+  () => parseAlphaVantageDaily({ Note: 'API key SECRET rate limited' }),
+  (error: unknown) => error instanceof Error && !error.message.includes('SECRET') && /호출 한도/.test(error.message),
+);
 console.log('market data indicators: ok');

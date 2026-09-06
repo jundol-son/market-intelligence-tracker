@@ -1,3 +1,5 @@
+import { providerError } from './provider-error.ts';
+
 export type PriceBar = {
   date: string;
   open: number;
@@ -14,8 +16,8 @@ export interface MarketDataProvider {
 export function parseAlphaVantageDaily(input: unknown): PriceBar[] {
   if (!input || typeof input !== 'object') throw new Error('시세 응답 형식이 올바르지 않습니다.');
   const body = input as Record<string, unknown>;
-  const providerError = body['Error Message'] ?? body.Note ?? body.Information;
-  if (typeof providerError === 'string') throw new Error(providerError);
+  const error = providerError(body);
+  if (error) throw new Error(error);
   const series = body['Time Series (Daily)'];
   if (!series || typeof series !== 'object') throw new Error('일봉 데이터가 응답에 없습니다.');
 

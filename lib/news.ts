@@ -1,3 +1,5 @@
+import { providerError } from './provider-error.ts';
+
 export const NEWS_CATEGORIES = [
   'Monetary Policy', 'Macro Economy', 'Geopolitics', 'Government Policy', 'Earnings',
   'Guidance', 'M&A', 'Shareholder Return', 'Buyback', 'Dividend', 'Capital Raising',
@@ -72,8 +74,8 @@ function duration(value: typeof NEWS_CATEGORIES[number]): NewsDuration {
 export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArticle[] {
   if (!input || typeof input !== 'object') throw new Error('뉴스 응답 형식이 올바르지 않습니다.');
   const body = input as Record<string, unknown>;
-  const providerError = body['Error Message'] ?? body.Note ?? body.Information;
-  if (typeof providerError === 'string') throw new Error(providerError);
+  const error = providerError(body);
+  if (error) throw new Error(error);
   if (!Array.isArray(body.feed)) throw new Error('뉴스 데이터가 응답에 없습니다.');
 
   return body.feed.flatMap((raw) => {

@@ -16,6 +16,10 @@ assert.equal(parsed[0].category, 'Earnings');
 assert.equal(parsed[0].sentiment, 'POSITIVE');
 assert.equal(parsed[0].impactScore, 62);
 assert.ok(calculateNewsScore(parsed) > 50);
+assert.throws(
+  () => parseAlphaVantageNews({ Information: 'API key SECRET reached 25 requests per day' }, 'NVDA'),
+  (error: unknown) => error instanceof Error && !error.message.includes('SECRET') && /호출 한도/.test(error.message),
+);
 assert.equal(detectDivergence(-1.2, 70), 'PRICE_DOWN_NEWS_POSITIVE');
 assert.equal(detectDivergence(1.2, 30), 'PRICE_UP_NEWS_NEGATIVE');
 assert.equal(detectDivergence(0.1, 30), null);
