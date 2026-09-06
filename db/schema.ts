@@ -163,3 +163,48 @@ export const forecastResults = sqliteTable('forecast_results', {
   rangeHit: integer('range_hit', { mode: 'boolean' }).notNull(),
   evaluatedAt: text('evaluated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('forecast_results_forecast_unique').on(table.forecastId)]);
+
+export const newsEvents = sqliteTable('news_events', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  fingerprint: text().notNull().unique(),
+  title: text().notNull(),
+  summary: text().notNull(),
+  category: text().notNull(),
+  eventTime: text('event_time').notNull(),
+  sentiment: text().notNull(),
+  sentimentScore: real('sentiment_score').notNull(),
+  impactScore: real('impact_score').notNull(),
+  confidenceScore: real('confidence_score').notNull(),
+  durationType: text('duration_type').notNull(),
+  affectedGroups: text('affected_groups').notNull().default('[]'),
+  isDuplicateGroup: integer('is_duplicate_group', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const newsSources = sqliteTable('news_sources', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  eventId: integer('event_id').notNull().references(() => newsEvents.id, { onDelete: 'cascade' }),
+  source: text().notNull(),
+  sourceUrl: text('source_url').notNull(),
+  sourceRank: integer('source_rank').notNull(),
+  publishedAt: text('published_at').notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('news_sources_url_unique').on(table.sourceUrl)]);
+
+export const newsEventAssets = sqliteTable('news_event_assets', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  eventId: integer('event_id').notNull().references(() => newsEvents.id, { onDelete: 'cascade' }),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  relevanceScore: real('relevance_score').notNull(),
+  sentimentScore: real('sentiment_score').notNull(),
+}, (table) => [uniqueIndex('news_event_assets_event_asset_unique').on(table.eventId, table.assetId)]);
+
+export const newsScores = sqliteTable('news_scores', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  date: text().notNull(),
+  score: real().notNull(),
+  eventCount: integer('event_count').notNull(),
+  divergence: text(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('news_scores_asset_date_unique').on(table.assetId, table.date)]);

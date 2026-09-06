@@ -6,6 +6,7 @@ type ScorableAsset = ScoreInput & {
   market: string;
   importanceWeight: number;
   date: string;
+  newsScore: number | null;
 };
 
 export async function getWeights(): Promise<ScoreWeight[]> {
@@ -42,7 +43,8 @@ export async function recalculateScores() {
     p.date, p.close, i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance,
     i.ma20_slope AS ma20Slope, i.ma60_slope AS ma60Slope, i.rsi14, i.atr14,
     i.return_5d AS return5d, i.return_20d AS return20d,
-    i.relative_strength AS relativeStrength
+    i.relative_strength AS relativeStrength,
+    (SELECT n.score FROM news_scores n WHERE n.asset_id=a.id ORDER BY n.date DESC LIMIT 1) AS newsScore
     FROM assets a JOIN asset_prices p ON p.id=(SELECT p2.id FROM asset_prices p2
       WHERE p2.asset_id=a.id ORDER BY p2.date DESC LIMIT 1)
     JOIN asset_indicators i ON i.asset_id=a.id AND i.date=p.date WHERE a.enabled=1`).all<ScorableAsset>();
@@ -53,15 +55,16 @@ export async function recalculateScores() {
     const prior = await priorScores(asset.id, asset.date);
     await db.prepare(`INSERT INTO asset_scores
       (asset_id, date, trend_score, momentum_score, risk_score, technical_score,
-        relative_score, composite_score, score_change_1d, score_change_5d)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        news_score, relative_score, composite_score, score_change_1d, score_change_5d)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(asset_id, date) DO UPDATE SET trend_score=excluded.trend_score,
         momentum_score=excluded.momentum_score, risk_score=excluded.risk_score,
-        technical_score=excluded.technical_score, relative_score=excluded.relative_score,
+        technical_score=excluded.technical_score, news_score=excluded.news_score,
+        relative_score=excluded.relative_score,
         composite_score=excluded.composite_score, score_change_1d=excluded.score_change_1d,
         score_change_5d=excluded.score_change_5d`)
       .bind(asset.id, asset.date, score.trendScore, score.momentumScore, score.riskScore,
-        score.technicalScore, score.relativeScore, score.compositeScore,
+        score.technicalScore, asset.newsScore, score.relativeScore, score.compositeScore,
         prior[0] ? score.compositeScore - prior[0].score : null,
         prior[4] ? score.compositeScore - prior[4].score : null).run();
     scored.push({ ...asset, compositeScore: score.compositeScore });

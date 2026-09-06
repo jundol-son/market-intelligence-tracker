@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 4 Daily Reports입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 5 News입니다.
 
 ## Phase 1
 
@@ -32,6 +32,14 @@
 - 같은 거래일 중복 발행 방지 및 기존 Snapshot 불변 유지
 - Phase 7 Forecast 결과를 다음 거래일 가격과 연결할 저장·평가 경로
 
+## Phase 5
+
+- Alpha Vantage `NEWS_SENTIMENT` 자산별 수동 수집
+- News Event·출처·자산 매핑과 반복 수집 중복 방지
+- Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
+- 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시
+- `GET /api/news`, `POST /api/admin/news/:id`, News 화면
+
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
 ## 로컬 실행
@@ -61,7 +69,6 @@ npm run build
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
-| 외부 시세 API 키 | Phase 2에서 결정 | Worker Secret |
 | Telegram/메일 키 | Phase 8에서 결정 | Worker Secret |
 
 비밀값의 실제 내용은 README, 커밋, 이슈에 기록하지 않습니다. 변경 이력과 다음 작업은 로컬 작업공간 루트의 `CODEX_PROGRESS.md`에 누적합니다.
@@ -80,4 +87,4 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 ## 무료 플랜 주의사항
 
-Phase 2는 Workers Free + D1 Free 범위에서 운영하도록 구성했습니다. Alpha Vantage 무료 키는 현재 하루 25회이고 compact 일봉은 최근 100개이므로, MA120/200은 데이터가 충분히 누적될 때까지 `null`입니다. 시장별 심볼 지원과 데이터 이용 조건은 등록 전에 확인해야 합니다.
+가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자산별 버튼을 필요할 때만 실행하고, MA120/200은 데이터가 충분히 누적될 때까지 `null`입니다. 시장별 심볼 지원과 데이터 이용 조건은 등록 전에 확인해야 합니다.

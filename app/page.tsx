@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity, ArrowDownRight, ArrowUpRight, Bell, ChartNoAxesCombined, CheckCircle2,
+  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, ChartNoAxesCombined, CheckCircle2,
   CircleGauge, Database, LayoutDashboard, Loader2, Newspaper, Pencil, Plus, Settings2,
   RefreshCw, Star, Trash2,
 } from 'lucide-react';
@@ -55,7 +55,19 @@ type ReportDetail = {
   metrics: ReportMetric[];
   forecasts: Array<{ id: number; symbol: string | null; actualReturn: number | null; directionHit: number | null; rangeHit: number | null }>;
 };
-type View = 'dashboard' | 'reports' | 'admin';
+type NewsEvent = {
+  id: number; title: string; summary: string; category: string; eventTime: string;
+  sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED'; impactScore: number;
+  confidenceScore: number; durationType: string; isDuplicateGroup: boolean;
+  sources: Array<{ source: string; sourceUrl: string; sourceRank: number }>;
+  assets: Array<{ assetId: number; symbol: string; name: string; relevanceScore: number }>;
+};
+type NewsScore = {
+  assetId: number; symbol: string; name: string; date: string; score: number;
+  eventCount: number; divergence: string | null;
+};
+type NewsData = { events: NewsEvent[]; scores: NewsScore[] };
+type View = 'dashboard' | 'reports' | 'news' | 'admin';
 
 const sampleScores = [
   { label: 'Overall Market', value: 72, change: '+4', tone: 'text-emerald-600', bar: 'bg-emerald-500' },
@@ -95,6 +107,7 @@ export default function Home() {
   const [scores, setScores] = useState<MarketScore | null>(null);
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [reportDetail, setReportDetail] = useState<ReportDetail | null>(null);
+  const [news, setNews] = useState<NewsData>({ events: [], scores: [] });
   const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -108,6 +121,8 @@ export default function Home() {
   const [collectingId, setCollectingId] = useState<number | null>(null);
   const [savingWeights, setSavingWeights] = useState(false);
   const [loadingReports, setLoadingReports] = useState(false);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [collectingNewsId, setCollectingNewsId] = useState<number | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
 
   const loadAssets = useCallback(async () => {
@@ -133,6 +148,15 @@ export default function Home() {
       }
     } finally {
       setLoadingReports(false);
+    }
+  }, []);
+
+  const loadNews = useCallback(async () => {
+    setLoadingNews(true);
+    try {
+      setNews(await api<NewsData>('/api/news'));
+    } finally {
+      setLoadingNews(false);
     }
   }, []);
 
@@ -246,6 +270,22 @@ export default function Home() {
     }
   }
 
+  async function collectNews(asset: Asset) {
+    setCollectingNewsId(asset.id);
+    setMessage('');
+    try {
+      const data = await api<{ collection: { fetched: number; created: number; score: number; divergence: string | null } }>(
+        `/api/admin/news/${asset.id}`, { method: 'POST' }, adminToken,
+      );
+      await Promise.all([loadNews(), loadDashboard()]);
+      setMessage(`${asset.symbol} 뉴스 ${data.collection.fetched}건 확인 · 신규 Event ${data.collection.created}건 · News Score ${data.collection.score.toFixed(1)}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '뉴스를 수집하지 못했습니다.');
+    } finally {
+      setCollectingNewsId(null);
+    }
+  }
+
   async function loadWeights() {
     try {
       const data = await api<{ weights: ScoreWeight[] }>('/api/admin/weights', undefined, adminToken);
@@ -292,11 +332,13 @@ export default function Home() {
   function selectView(target: View) {
     setView(target);
     if (target === 'reports') void loadReports().catch((error: Error) => setMessage(error.message));
+    if (target === 'news') void loadNews().catch((error: Error) => setMessage(error.message));
   }
 
   const nav = [
     { label: 'Dashboard', icon: LayoutDashboard, target: 'dashboard' as const },
     { label: 'Reports', icon: Newspaper, target: 'reports' as const },
+    { label: 'News', icon: Bell, target: 'news' as const },
     { label: 'Watchlist', icon: Star },
     { label: 'Admin', icon: Settings2, target: 'admin' as const },
   ];
@@ -320,10 +362,10 @@ export default function Home() {
         <header className="flex min-h-20 items-center justify-between border-b bg-white/70 px-5 py-3 backdrop-blur-xl sm:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Market intelligence</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : '자산 관리'}</h1>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : '자산 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 4</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 5</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -343,7 +385,9 @@ export default function Home() {
             ? <Dashboard assets={assets} market={market} scores={scores} loading={loading} />
             : view === 'reports'
               ? <Reports reports={reports} detail={reportDetail} loading={loadingReports} onSelect={loadReport} />
-              : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} />}
+              : view === 'news'
+                ? <News news={news} loading={loadingNews} />
+                : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} />}
         </div>
       </section>
 
@@ -404,7 +448,7 @@ function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; marke
       <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
-    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 4 Daily Reports</h2><p className="text-sm text-muted-foreground">발행 시점의 시장·자산 점수를 변경 불가능한 Snapshot으로 보관합니다.</p></div></div></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 5 News Intelligence</h2><p className="text-sm text-muted-foreground">가격 점수와 분리된 뉴스 Event·영향도·괴리 신호를 추적합니다.</p></div></div></section>
   </div>;
 }
 
@@ -427,12 +471,23 @@ function Reports({ reports, detail, loading, onSelect }: { reports: ReportListIt
   </div>;
 }
 
-function Admin({ assets, loading, token, collectingId, weights, savingWeights, generatingReport, onToken, onAdd, onCollect, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void }) {
+function News({ news, loading }: { news: NewsData; loading: boolean }) {
+  if (loading && news.events.length === 0) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  return <div className="space-y-6">
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {news.scores.map((item) => <article key={item.assetId} className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name} · {item.eventCount} events</p></div><strong className={`text-2xl tabular-nums ${item.score >= 60 ? 'text-emerald-600' : item.score <= 40 ? 'text-rose-600' : ''}`}>{item.score.toFixed(1)}</strong></div>{item.divergence && <p className="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800"><AlertTriangle className="size-4" />{item.divergence === 'PRICE_UP_NEWS_NEGATIVE' ? '악재에도 가격이 상승 중' : '호재에도 가격이 하락 중'}</p>}</article>)}
+      {!news.scores.length && <article className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground sm:col-span-2">Admin에서 자산별 뉴스 수집을 실행하면 News Score가 생성됩니다.</article>}
+    </section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="border-b px-5 py-4"><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">동일 사건의 여러 보도는 하나의 Event와 출처 목록으로 묶습니다.</p></div><div className="divide-y">{news.events.map((event) => <article key={event.id} className="p-5"><div className="flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{event.category}</span><span className={`rounded-full px-2 py-1 font-semibold ${event.sentiment === 'POSITIVE' ? 'bg-emerald-50 text-emerald-700' : event.sentiment === 'NEGATIVE' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{event.sentiment}</span><span className="text-muted-foreground">Impact {event.impactScore.toFixed(0)} · Confidence {event.confidenceScore.toFixed(0)} · {event.durationType}</span></div><h3 className="mt-3 font-semibold leading-6">{event.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{event.summary}</p><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground"><span>{new Date(event.eventTime).toLocaleString('ko-KR')}</span><span>{event.assets.map((asset) => asset.symbol).join(', ')}</span>{event.sources.map((source) => <a key={source.sourceUrl} href={source.sourceUrl} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline">{source.source}</a>)}</div></article>)}{!news.events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">수집된 News Event가 없습니다.</div>}</div></section>
+  </div>;
+}
+
+function Admin({ assets, loading, token, collectingId, collectingNewsId, weights, savingWeights, generatingReport, onToken, onAdd, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; collectingNewsId: number | null; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void }) {
   return <div className="space-y-6">
     <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-token">관리자 토큰</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 API 요청 때만 사용합니다.</p><Input id="admin-token" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="ADMIN_TOKEN" className="max-w-md bg-white" /></div><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></section>
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>
-      {loading ? <div className="grid min-h-48 place-items-center text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div> : assets.length === 0 ? <div className="grid min-h-56 place-items-center p-8 text-center"><div><Database className="mx-auto size-8 text-slate-300" /><p className="mt-4 font-medium">등록된 자산이 없습니다.</p><p className="mt-1 text-sm text-muted-foreground">첫 번째 추적 자산을 등록하세요.</p></div></div> : <Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>유형</TableHead><TableHead>시장 / 통화</TableHead><TableHead>중요도</TableHead><TableHead>상태</TableHead><TableHead className="text-right">관리</TableHead></TableRow></TableHeader><TableBody>{assets.map((asset) => <TableRow key={asset.id}><TableCell><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-muted-foreground">{asset.name}</p></TableCell><TableCell>{asset.assetType}</TableCell><TableCell>{asset.market} · {asset.currency}</TableCell><TableCell>{asset.importanceWeight}</TableCell><TableCell><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${asset.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{asset.enabled && <CheckCircle2 className="size-3" />}{asset.enabled ? '활성' : '비활성'}</span></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 가격 수집`} disabled={!token || collectingId !== null} onClick={() => onCollect(asset)}>{collectingId === asset.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 수정`} onClick={() => onEdit(asset)}><Pencil /></Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 삭제`} className="text-rose-600" onClick={() => onDelete(asset)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody></Table>}
+      {loading ? <div className="grid min-h-48 place-items-center text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div> : assets.length === 0 ? <div className="grid min-h-56 place-items-center p-8 text-center"><div><Database className="mx-auto size-8 text-slate-300" /><p className="mt-4 font-medium">등록된 자산이 없습니다.</p><p className="mt-1 text-sm text-muted-foreground">첫 번째 추적 자산을 등록하세요.</p></div></div> : <Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>유형</TableHead><TableHead>시장 / 통화</TableHead><TableHead>중요도</TableHead><TableHead>상태</TableHead><TableHead className="text-right">관리</TableHead></TableRow></TableHeader><TableBody>{assets.map((asset) => <TableRow key={asset.id}><TableCell><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-muted-foreground">{asset.name}</p></TableCell><TableCell>{asset.assetType}</TableCell><TableCell>{asset.market} · {asset.currency}</TableCell><TableCell>{asset.importanceWeight}</TableCell><TableCell><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${asset.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{asset.enabled && <CheckCircle2 className="size-3" />}{asset.enabled ? '활성' : '비활성'}</span></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 가격 수집`} disabled={!token || collectingId !== null || collectingNewsId !== null} onClick={() => onCollect(asset)}>{collectingId === asset.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 뉴스 수집`} disabled={!token || collectingId !== null || collectingNewsId !== null} onClick={() => onCollectNews(asset)}>{collectingNewsId === asset.id ? <Loader2 className="animate-spin" /> : <Newspaper />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 수정`} onClick={() => onEdit(asset)}><Pencil /></Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 삭제`} className="text-rose-600" onClick={() => onDelete(asset)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody></Table>}
     </section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">Score Weight</h2><p className="mt-1 text-sm text-muted-foreground">ASSET과 MARKET 그룹별 활성 가중치 합계는 각각 1이어야 합니다.</p></div><div className="flex gap-2"><Button variant="outline" onClick={onLoadWeights} disabled={!token}>불러오기</Button><Button onClick={onSaveWeights} disabled={!token || savingWeights}>{savingWeights && <Loader2 className="animate-spin" />}저장·재계산</Button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{weights.map((item, index) => <div key={`${item.scoreGroup}-${item.metricKey}`} className="rounded-xl border p-3"><Label htmlFor={`weight-${index}`}>{item.scoreGroup} · {item.metricKey}</Label><Input id={`weight-${index}`} type="number" min="0" max="1" step="0.05" value={item.weight} onChange={(event) => onWeights(weights.map((weight, weightIndex) => weightIndex === index ? { ...weight, weight: Number(event.target.value) } : weight))} /></div>)}</div></section>
   </div>;
