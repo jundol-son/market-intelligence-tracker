@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, ChartNoAxesCombined, CheckCircle2,
+  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, CalendarDays, ChartNoAxesCombined, CheckCircle2,
   CircleGauge, Database, LayoutDashboard, Loader2, Newspaper, Pencil, Plus, Settings2,
   RefreshCw, Star, Trash2,
 } from 'lucide-react';
@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ASSET_TYPES, type AssetInput, type AssetType } from '@/lib/asset';
+import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 
 type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
@@ -67,7 +68,11 @@ type NewsScore = {
   eventCount: number; divergence: string | null;
 };
 type NewsData = { events: NewsEvent[]; scores: NewsScore[] };
-type View = 'dashboard' | 'reports' | 'news' | 'admin';
+type EconomicEvent = EconomicEventInput & {
+  id: number; createdAt: string; updatedAt: string;
+  assets: Array<{ assetId: number; symbol: string; name: string }>;
+};
+type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'admin';
 
 const sampleScores = [
   { label: 'Overall Market', value: 72, change: '+4', tone: 'text-emerald-600', bar: 'bg-emerald-500' },
@@ -86,6 +91,17 @@ const emptyForm: AssetInput = {
   symbol: '', name: '', assetType: 'STOCK', market: 'NASDAQ', currency: 'USD',
   benchmarkAssetId: null, groupId: null, enabled: true, importanceWeight: 1,
 };
+
+const emptyEventForm: EconomicEventInput = {
+  eventName: '', eventType: 'CPI', country: 'US', scheduledAt: '', previousValue: null,
+  consensusValue: null, actualValue: null, expectedImpact: 80, status: 'SCHEDULED',
+  sourceUrl: null, affectedAssetIds: [],
+};
+
+function localDateTime(iso: string) {
+  const date = new Date(iso);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
 
 async function api<T>(url: string, options?: RequestInit, token?: string): Promise<T> {
   const headers = new Headers(options?.headers);
@@ -108,6 +124,7 @@ export default function Home() {
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [reportDetail, setReportDetail] = useState<ReportDetail | null>(null);
   const [news, setNews] = useState<NewsData>({ events: [], scores: [] });
+  const [economicEvents, setEconomicEvents] = useState<EconomicEvent[]>([]);
   const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -124,6 +141,12 @@ export default function Home() {
   const [loadingNews, setLoadingNews] = useState(false);
   const [collectingNewsId, setCollectingNewsId] = useState<number | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<EconomicEvent | null>(null);
+  const [eventForm, setEventForm] = useState<EconomicEventInput>(emptyEventForm);
+  const [eventFormOpen, setEventFormOpen] = useState(false);
+  const [deletingEvent, setDeletingEvent] = useState<EconomicEvent | null>(null);
+  const [savingEvent, setSavingEvent] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const data = await api<{ assets: Asset[] }>('/api/assets');
@@ -157,6 +180,16 @@ export default function Home() {
       setNews(await api<NewsData>('/api/news'));
     } finally {
       setLoadingNews(false);
+    }
+  }, []);
+
+  const loadCalendar = useCallback(async () => {
+    setLoadingCalendar(true);
+    try {
+      const data = await api<{ events: EconomicEvent[] }>('/api/calendar');
+      setEconomicEvents(data.events);
+    } finally {
+      setLoadingCalendar(false);
     }
   }, []);
 
@@ -329,16 +362,61 @@ export default function Home() {
     }
   }
 
+  function openEventForm(event?: EconomicEvent) {
+    setEditingEvent(event ?? null);
+    setEventForm(event ? {
+      ...event,
+      scheduledAt: localDateTime(event.scheduledAt),
+      affectedAssetIds: event.assets.map((asset) => asset.assetId),
+    } : { ...emptyEventForm });
+    setMessage('');
+    setEventFormOpen(true);
+  }
+
+  async function saveEconomicEvent(submitEvent: React.SyntheticEvent<HTMLFormElement>) {
+    submitEvent.preventDefault();
+    setSavingEvent(true);
+    setMessage('');
+    try {
+      const payload = { ...eventForm, scheduledAt: new Date(eventForm.scheduledAt).toISOString() };
+      await api(editingEvent ? `/api/admin/calendar/${editingEvent.id}` : '/api/admin/calendar', {
+        method: editingEvent ? 'PUT' : 'POST', body: JSON.stringify(payload),
+      }, adminToken);
+      await loadCalendar();
+      setEventFormOpen(false);
+      setMessage(editingEvent ? '경제 이벤트를 수정했습니다.' : '경제 이벤트를 등록했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '경제 이벤트를 저장하지 못했습니다.');
+    } finally {
+      setSavingEvent(false);
+    }
+  }
+
+  async function removeEconomicEvent() {
+    if (!deletingEvent) return;
+    try {
+      await api(`/api/admin/calendar/${deletingEvent.id}`, { method: 'DELETE' }, adminToken);
+      await loadCalendar();
+      setMessage('경제 이벤트를 삭제했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '경제 이벤트를 삭제하지 못했습니다.');
+    } finally {
+      setDeletingEvent(null);
+    }
+  }
+
   function selectView(target: View) {
     setView(target);
-    if (target === 'reports') void loadReports().catch((error: Error) => setMessage(error.message));
+    if (target === 'reports') void Promise.all([loadReports(), loadCalendar()]).catch((error: Error) => setMessage(error.message));
     if (target === 'news') void loadNews().catch((error: Error) => setMessage(error.message));
+    if (target === 'calendar') void loadCalendar().catch((error: Error) => setMessage(error.message));
   }
 
   const nav = [
     { label: 'Dashboard', icon: LayoutDashboard, target: 'dashboard' as const },
     { label: 'Reports', icon: Newspaper, target: 'reports' as const },
     { label: 'News', icon: Bell, target: 'news' as const },
+    { label: 'Calendar', icon: CalendarDays, target: 'calendar' as const },
     { label: 'Watchlist', icon: Star },
     { label: 'Admin', icon: Settings2, target: 'admin' as const },
   ];
@@ -362,10 +440,10 @@ export default function Home() {
         <header className="flex min-h-20 items-center justify-between border-b bg-white/70 px-5 py-3 backdrop-blur-xl sm:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Market intelligence</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : '자산 관리'}</h1>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : '자산 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 5</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 6</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -384,10 +462,12 @@ export default function Home() {
           {view === 'dashboard'
             ? <Dashboard assets={assets} market={market} scores={scores} loading={loading} />
             : view === 'reports'
-              ? <Reports reports={reports} detail={reportDetail} loading={loadingReports} onSelect={loadReport} />
+              ? <Reports reports={reports} detail={reportDetail} events={economicEvents} loading={loadingReports} onSelect={loadReport} />
               : view === 'news'
                 ? <News news={news} loading={loadingNews} />
-                : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} />}
+                : view === 'calendar'
+                  ? <EconomicCalendar events={economicEvents} loading={loadingCalendar} canManage={Boolean(adminToken)} onAdd={() => openEventForm()} onEdit={openEventForm} onDelete={setDeletingEvent} />
+                  : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} />}
         </div>
       </section>
 
@@ -408,6 +488,22 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={eventFormOpen} onOpenChange={setEventFormOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <form onSubmit={saveEconomicEvent}>
+            <DialogHeader>
+              <DialogTitle>{editingEvent ? '경제 이벤트 수정' : '경제 이벤트 등록'}</DialogTitle>
+              <DialogDescription>공식 발표 시각과 시장 영향도를 입력하세요.</DialogDescription>
+            </DialogHeader>
+            <EconomicEventForm value={eventForm} assets={assets} onChange={setEventForm} />
+            <DialogFooter className="mt-5">
+              <Button type="button" variant="outline" onClick={() => setEventFormOpen(false)}>취소</Button>
+              <Button type="submit" disabled={savingEvent || !adminToken}>{savingEvent && <Loader2 className="animate-spin" />}{editingEvent ? '변경 저장' : '일정 등록'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -420,6 +516,19 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={Boolean(deletingEvent)} onOpenChange={(open) => !open && setDeletingEvent(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deletingEvent?.eventName}을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>캘린더에서 영구 삭제됩니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={removeEconomicEvent}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }
@@ -429,7 +538,7 @@ function Brand() {
 }
 
 function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 5</p></div>;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 6</p></div>;
 }
 
 function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; loading: boolean }) {
@@ -448,11 +557,11 @@ function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; marke
       <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
-    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 5 News Intelligence</h2><p className="text-sm text-muted-foreground">가격 점수와 분리된 뉴스 Event·영향도·괴리 신호를 추적합니다.</p></div></div></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 6 Economic Calendar</h2><p className="text-sm text-muted-foreground">뉴스 신호와 함께 CPI·고용·중앙은행·실적 일정을 사전에 확인합니다.</p></div></div></section>
   </div>;
 }
 
-function Reports({ reports, detail, loading, onSelect }: { reports: ReportListItem[]; detail: ReportDetail | null; loading: boolean; onSelect: (id: number) => void }) {
+function Reports({ reports, detail, events, loading, onSelect }: { reports: ReportListItem[]; detail: ReportDetail | null; events: EconomicEvent[]; loading: boolean; onSelect: (id: number) => void }) {
   if (loading && reports.length === 0) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
   if (reports.length === 0) return <section className="grid min-h-80 place-items-center rounded-2xl border bg-card p-8 text-center"><div><Newspaper className="mx-auto size-9 text-slate-300" /><h2 className="mt-4 font-semibold">아직 발행된 리포트가 없습니다.</h2><p className="mt-2 text-sm text-muted-foreground">가격 수집 후 Admin에서 Daily Report를 생성하세요.</p></div></section>;
   return <div className="grid gap-6 xl:grid-cols-[330px_1fr]">
@@ -467,6 +576,7 @@ function Reports({ reports, detail, loading, onSelect }: { reports: ReportListIt
       ].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-muted-foreground">{label}</p><strong className="mt-1 block text-2xl tabular-nums">{typeof value === 'number' ? value.toFixed(1) : '—'}</strong></div>)}</section>
       <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>종가</TableHead><TableHead>1일</TableHead><TableHead>MA20</TableHead><TableHead>RSI</TableHead><TableHead className="text-right">Score</TableHead></TableRow></TableHeader><TableBody>{detail.metrics.map((metric) => <TableRow key={metric.assetId}><TableCell><p className="font-semibold">{metric.symbol}</p><p className="text-xs text-muted-foreground">{metric.name}</p></TableCell><TableCell>{metric.price?.toLocaleString() ?? '—'}</TableCell><TableCell className={(metric.dailyReturn ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{metric.dailyReturn === null ? '—' : `${metric.dailyReturn > 0 ? '+' : ''}${metric.dailyReturn.toFixed(2)}%`}</TableCell><TableCell>{metric.ma20?.toFixed(2) ?? '—'}</TableCell><TableCell>{metric.rsi?.toFixed(1) ?? '—'}</TableCell><TableCell className="text-right font-semibold">{metric.compositeScore?.toFixed(0) ?? '—'}</TableCell></TableRow>)}</TableBody></Table></div>
       <section className="mt-6 rounded-xl border border-dashed p-4"><h3 className="font-semibold">다음 거래일 전망</h3><p className="mt-1 text-sm text-muted-foreground">{detail.forecasts.length ? `예측 ${detail.forecasts.length}건 · 실제 결과가 확보되면 자동 연결됩니다.` : 'Phase 7 Forecast Engine에서 확률·예상 범위를 계산합니다.'}</p></section>
+      <section className="mt-4 rounded-xl bg-slate-50 p-4"><h3 className="font-semibold">다가오는 주요 이벤트</h3><div className="mt-3 space-y-2">{events.filter((event) => event.status === 'SCHEDULED' && new Date(event.scheduledAt) >= new Date()).slice(0, 3).map((event) => <div key={event.id} className="flex items-center justify-between gap-3 text-sm"><span><strong>{event.eventName}</strong><span className="ml-2 text-muted-foreground">{new Date(event.scheduledAt).toLocaleString('ko-KR')}</span></span><span className="font-semibold text-blue-700">Impact {event.expectedImpact}</span></div>)}{!events.some((event) => event.status === 'SCHEDULED' && new Date(event.scheduledAt) >= new Date()) && <p className="text-sm text-muted-foreground">등록된 예정 이벤트가 없습니다.</p>}</div></section>
     </article>}
   </div>;
 }
@@ -479,6 +589,14 @@ function News({ news, loading }: { news: NewsData; loading: boolean }) {
       {!news.scores.length && <article className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground sm:col-span-2">Admin에서 자산별 뉴스 수집을 실행하면 News Score가 생성됩니다.</article>}
     </section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="border-b px-5 py-4"><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">동일 사건의 여러 보도는 하나의 Event와 출처 목록으로 묶습니다.</p></div><div className="divide-y">{news.events.map((event) => <article key={event.id} className="p-5"><div className="flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{event.category}</span><span className={`rounded-full px-2 py-1 font-semibold ${event.sentiment === 'POSITIVE' ? 'bg-emerald-50 text-emerald-700' : event.sentiment === 'NEGATIVE' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{event.sentiment}</span><span className="text-muted-foreground">Impact {event.impactScore.toFixed(0)} · Confidence {event.confidenceScore.toFixed(0)} · {event.durationType}</span></div><h3 className="mt-3 font-semibold leading-6">{event.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{event.summary}</p><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground"><span>{new Date(event.eventTime).toLocaleString('ko-KR')}</span><span>{event.assets.map((asset) => asset.symbol).join(', ')}</span>{event.sources.map((source) => <a key={source.sourceUrl} href={source.sourceUrl} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline">{source.source}</a>)}</div></article>)}{!news.events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">수집된 News Event가 없습니다.</div>}</div></section>
+  </div>;
+}
+
+function EconomicCalendar({ events, loading, canManage, onAdd, onEdit, onDelete }: { events: EconomicEvent[]; loading: boolean; canManage: boolean; onAdd: () => void; onEdit: (event: EconomicEvent) => void; onDelete: (event: EconomicEvent) => void }) {
+  if (loading && events.length === 0) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  return <div className="space-y-6">
+    <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">중요 경제 일정</h2><p className="mt-1 text-sm text-muted-foreground">시각은 현재 브라우저 시간대로 표시됩니다. Impact는 0~100입니다.</p></div><Button onClick={onAdd} disabled={!canManage}><Plus /> 일정 등록</Button></section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="divide-y">{events.map((event) => <article key={event.id} className="grid gap-4 p-5 md:grid-cols-[150px_1fr_auto] md:items-center"><time className="text-sm tabular-nums text-muted-foreground" dateTime={event.scheduledAt}>{new Date(event.scheduledAt).toLocaleString('ko-KR')}</time><div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{event.eventType}</span><span className="text-xs text-muted-foreground">{event.country} · {event.status}</span></div><h3 className="mt-2 font-semibold">{event.eventName}</h3><p className="mt-1 text-xs text-muted-foreground">{event.assets.length ? `영향 자산 ${event.assets.map((asset) => asset.symbol).join(', ')}` : '시장 전체'}{event.previousValue && ` · 이전 ${event.previousValue}`}{event.consensusValue && ` · 예상 ${event.consensusValue}`}{event.actualValue && ` · 실제 ${event.actualValue}`}</p>{event.sourceUrl && <a href={event.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline">공식 출처</a>}</div><div className="flex items-center justify-between gap-2 md:justify-end"><span className={`rounded-xl px-3 py-2 text-sm font-semibold ${event.expectedImpact >= 90 ? 'bg-rose-50 text-rose-700' : event.expectedImpact >= 70 ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>Impact {event.expectedImpact}</span>{canManage && <><Button variant="ghost" size="icon-sm" aria-label={`${event.eventName} 수정`} onClick={() => onEdit(event)}><Pencil /></Button><Button variant="ghost" size="icon-sm" className="text-rose-600" aria-label={`${event.eventName} 삭제`} onClick={() => onDelete(event)}><Trash2 /></Button></>}</div></article>)}{!events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">등록된 경제 이벤트가 없습니다.</div>}</div></section>
   </div>;
 }
 
@@ -503,5 +621,22 @@ function AssetForm({ value, onChange }: { value: AssetInput; onChange: (value: A
     <div><Label htmlFor="currency">통화</Label><Input id="currency" required maxLength={3} value={value.currency} onChange={(e) => set('currency', e.target.value)} placeholder="USD" /></div>
     <div><Label htmlFor="weight">중요도 (0~100)</Label><Input id="weight" required type="number" min="0" max="100" step="0.1" value={value.importanceWeight} onChange={(e) => set('importanceWeight', Number(e.target.value))} /></div>
     <div className="sm:col-span-2 flex items-center justify-between rounded-xl border p-3"><div><Label htmlFor="enabled">추적 활성화</Label><p className="text-xs text-muted-foreground">다음 수집 작업에 포함합니다.</p></div><Switch id="enabled" checked={value.enabled} onCheckedChange={(checked) => set('enabled', checked)} /></div>
+  </div>;
+}
+
+function EconomicEventForm({ value, assets, onChange }: { value: EconomicEventInput; assets: Asset[]; onChange: (value: EconomicEventInput) => void }) {
+  const set = <K extends keyof EconomicEventInput>(key: K, next: EconomicEventInput[K]) => onChange({ ...value, [key]: next });
+  return <div className="mt-5 grid gap-4 sm:grid-cols-2">
+    <div className="sm:col-span-2"><Label htmlFor="event-name">이벤트 이름</Label><Input id="event-name" required maxLength={120} value={value.eventName} onChange={(e) => set('eventName', e.target.value)} placeholder="미국 소비자물가지수" /></div>
+    <div><Label htmlFor="event-type">유형</Label><select id="event-type" value={value.eventType} onChange={(e) => set('eventType', e.target.value as EconomicEventInput['eventType'])} className="mt-1 flex h-9 w-full rounded-md border bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring">{EVENT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></div>
+    <div><Label htmlFor="event-country">국가 코드</Label><Input id="event-country" required minLength={2} maxLength={3} value={value.country} onChange={(e) => set('country', e.target.value)} placeholder="US" /></div>
+    <div><Label htmlFor="event-time">예정 시각</Label><Input id="event-time" required type="datetime-local" value={value.scheduledAt} onChange={(e) => set('scheduledAt', e.target.value)} /></div>
+    <div><Label htmlFor="event-impact">Impact (0~100)</Label><Input id="event-impact" required type="number" min="0" max="100" step="1" value={value.expectedImpact} onChange={(e) => set('expectedImpact', Number(e.target.value))} /></div>
+    <div><Label htmlFor="event-status">상태</Label><select id="event-status" value={value.status} onChange={(e) => set('status', e.target.value as EconomicEventInput['status'])} className="mt-1 flex h-9 w-full rounded-md border bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring">{EVENT_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></div>
+    <div><Label htmlFor="event-previous">이전값</Label><Input id="event-previous" maxLength={40} value={value.previousValue ?? ''} onChange={(e) => set('previousValue', e.target.value || null)} placeholder="2.7%" /></div>
+    <div><Label htmlFor="event-consensus">컨센서스</Label><Input id="event-consensus" maxLength={40} value={value.consensusValue ?? ''} onChange={(e) => set('consensusValue', e.target.value || null)} placeholder="2.8%" /></div>
+    <div><Label htmlFor="event-actual">실제값</Label><Input id="event-actual" maxLength={40} value={value.actualValue ?? ''} onChange={(e) => set('actualValue', e.target.value || null)} placeholder="발표 후 입력" /></div>
+    <div className="sm:col-span-2"><Label htmlFor="event-source">공식 출처 URL</Label><Input id="event-source" type="url" maxLength={500} value={value.sourceUrl ?? ''} onChange={(e) => set('sourceUrl', e.target.value || null)} placeholder="https://..." /></div>
+    {assets.length > 0 && <fieldset className="sm:col-span-2"><legend className="text-sm font-medium">영향 자산</legend><div className="mt-2 flex flex-wrap gap-2">{assets.map((asset) => <label key={asset.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><input type="checkbox" checked={value.affectedAssetIds.includes(asset.id)} onChange={(e) => set('affectedAssetIds', e.target.checked ? [...value.affectedAssetIds, asset.id] : value.affectedAssetIds.filter((id) => id !== asset.id))} />{asset.symbol}</label>)}</div></fieldset>}
   </div>;
 }

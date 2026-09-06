@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 5 News입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 6 Economic Calendar입니다.
 
 ## Phase 1
 
@@ -39,6 +39,15 @@
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시
 - `GET /api/news`, `POST /api/admin/news/:id`, News 화면
+
+## Phase 6
+
+- CPI·PPI·고용·FOMC·중앙은행·실적 등 예정 이벤트 CRUD
+- 공식 출처, 영향 자산, 이전/예상/실제값, 상태와 Impact 0~100 관리
+- `GET /api/calendar`, 인증된 `/api/admin/calendar`, Calendar 화면
+- Reports 화면의 다가오는 주요 이벤트 노출
+
+초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록합니다. 일정 변경은 Admin 토큰 입력 후 Calendar에서 수정할 수 있으며 추가 API 토큰은 필요하지 않습니다.
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 

@@ -36,6 +36,13 @@
       "when": 1788698562945,
       "tag": "0004_flaky_rick_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788701218299,
+      "tag": "0005_high_major_mapleleaf",
+      "breakpoints": true
     }
   ]
 }

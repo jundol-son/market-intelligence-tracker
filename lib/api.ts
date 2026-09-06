@@ -20,6 +20,6 @@ export function apiError(error: unknown): Response {
 export function pathId(request: Request, offset = 0): number {
   const parts = new URL(request.url).pathname.split('/').filter(Boolean);
   const id = Number(parts.at(-1 - offset));
-  if (!Number.isInteger(id) || id < 1) throw new Error('자산 ID가 올바르지 않습니다.');
+  if (!Number.isInteger(id) || id < 1) throw new Error('ID가 올바르지 않습니다.');
   return id;
 }

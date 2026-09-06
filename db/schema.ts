@@ -208,3 +208,26 @@ export const newsScores = sqliteTable('news_scores', {
   divergence: text(),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('news_scores_asset_date_unique').on(table.assetId, table.date)]);
+
+export const economicEvents = sqliteTable('economic_events', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  eventName: text('event_name').notNull(),
+  eventType: text('event_type').notNull(),
+  country: text().notNull(),
+  scheduledAt: text('scheduled_at').notNull(),
+  previousValue: text('previous_value'),
+  consensusValue: text('consensus_value'),
+  actualValue: text('actual_value'),
+  expectedImpact: real('expected_impact').notNull(),
+  status: text().notNull().default('SCHEDULED'),
+  sourceUrl: text('source_url'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('economic_events_type_time_country_unique')
+  .on(table.eventType, table.scheduledAt, table.country)]);
+
+export const economicEventAssets = sqliteTable('economic_event_assets', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  eventId: integer('event_id').notNull().references(() => economicEvents.id, { onDelete: 'cascade' }),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+}, (table) => [uniqueIndex('economic_event_assets_event_asset_unique').on(table.eventId, table.assetId)]);
