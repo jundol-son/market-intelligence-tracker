@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 3 Score Engine입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 4 Daily Reports입니다.
 
 ## Phase 1
 
@@ -24,6 +24,13 @@
 - Admin 가중치 조회·수정·재계산
 
 점수 이력은 자산 수집 시 최신 거래일을 하루 한 번 upsert하며 앞으로 누적됩니다. 과거 100일 전체 점수 재생산은 실제 분석 필요가 생길 때 별도 backfill 작업으로 추가합니다.
+
+## Phase 4
+
+- 발행 당시 시장 점수와 자산 지표를 보존하는 Daily Report Snapshot
+- 날짜별 Report 목록·상세 API와 Reports 화면
+- 같은 거래일 중복 발행 방지 및 기존 Snapshot 불변 유지
+- Phase 7 Forecast 결과를 다음 거래일 가격과 연결할 저장·평가 경로
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
@@ -51,9 +58,9 @@ npm run build
 | 이름 | 현재 상태 | 저장/설정 위치 |
 |---|---|---|
 | `ADMIN_TOKEN` | 생성됨 | 로컬 `.admin-token`에만 보관(Git 제외), 운영에서는 Worker Secret |
-| `ALPHA_VANTAGE_API_KEY` | 무료 키 발급 필요 | 로컬 `.dev.vars`, 운영에서는 Worker Secret |
-| `CLOUDFLARE_D1_DATABASE_ID` | D1 생성 후 필요 | Cloudflare 빌드 환경 변수 |
-| `DB` binding | 코드 설정 완료 | 새 D1 데이터베이스에 연결 |
+| `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
+| `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
+| `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
 | 외부 시세 API 키 | Phase 2에서 결정 | Worker Secret |
 | Telegram/메일 키 | Phase 8에서 결정 | Worker Secret |
 
@@ -61,14 +68,15 @@ npm run build
 
 ## Git 기반 Cloudflare 배포
 
-Cloudflare Workers의 Git 저장소 연결 화면에서 이 저장소를 선택한 뒤 다음처럼 설정합니다.
+Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL은 `https://market-intelligence-tracker.sjsuk321.workers.dev`입니다.
 
 - Build command: `npm ci && npm run build`
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
+- Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
 - Worker secret: `ADMIN_TOKEN=<.admin-token의 값>`
 
-첫 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 `drizzle` migrations를 원격 D1에 적용해야 합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
+스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 
 ## 무료 플랜 주의사항
 

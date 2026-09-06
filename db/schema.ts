@@ -93,3 +93,73 @@ export const scoreWeights = sqliteTable('score_weights', {
   enabled: integer({ mode: 'boolean' }).notNull().default(true),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('score_weights_group_metric_unique').on(table.scoreGroup, table.metricKey)]);
+
+export const reports = sqliteTable('reports', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  reportDate: text('report_date').notNull(),
+  reportType: text('report_type').notNull().default('DAILY'),
+  overallScore: real('overall_score').notNull(),
+  globalScore: real('global_score'),
+  koreaScore: real('korea_score'),
+  marketRegime: text('market_regime').notNull(),
+  summary: text().notNull(),
+  upProbability: real('up_probability'),
+  downProbability: real('down_probability'),
+  expectedLow: real('expected_low'),
+  expectedHigh: real('expected_high'),
+  bullProbability: real('bull_probability'),
+  baseProbability: real('base_probability'),
+  bearProbability: real('bear_probability'),
+  confidence: real(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('reports_date_type_unique').on(table.reportDate, table.reportType)]);
+
+export const reportMetrics = sqliteTable('report_metrics', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  reportId: integer('report_id').notNull().references(() => reports.id, { onDelete: 'cascade' }),
+  assetId: integer('asset_id').notNull(),
+  symbol: text().notNull(),
+  name: text().notNull(),
+  price: real(),
+  dailyReturn: real('daily_return'),
+  ma20: real(),
+  ma60: real(),
+  ma120: real(),
+  ma200: real(),
+  ma20Distance: real('ma20_distance'),
+  ma60Distance: real('ma60_distance'),
+  ma120Distance: real('ma120_distance'),
+  ma200Distance: real('ma200_distance'),
+  rsi: real(),
+  trendScore: real('trend_score'),
+  momentumScore: real('momentum_score'),
+  riskScore: real('risk_score'),
+  newsScore: real('news_score'),
+  compositeScore: real('composite_score'),
+  scoreChange: real('score_change'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('report_metrics_report_asset_unique').on(table.reportId, table.assetId)]);
+
+export const forecasts = sqliteTable('forecasts', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  reportId: integer('report_id').notNull().references(() => reports.id, { onDelete: 'cascade' }),
+  targetAssetId: integer('target_asset_id').notNull(),
+  upProbability: real('up_probability').notNull(),
+  downProbability: real('down_probability').notNull(),
+  expectedLow: real('expected_low').notNull(),
+  expectedHigh: real('expected_high').notNull(),
+  bullProbability: real('bull_probability').notNull(),
+  baseProbability: real('base_probability').notNull(),
+  bearProbability: real('bear_probability').notNull(),
+  confidence: real().notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('forecasts_report_asset_unique').on(table.reportId, table.targetAssetId)]);
+
+export const forecastResults = sqliteTable('forecast_results', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  forecastId: integer('forecast_id').notNull().references(() => forecasts.id, { onDelete: 'cascade' }),
+  actualReturn: real('actual_return').notNull(),
+  directionHit: integer('direction_hit', { mode: 'boolean' }).notNull(),
+  rangeHit: integer('range_hit', { mode: 'boolean' }).notNull(),
+  evaluatedAt: text('evaluated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('forecast_results_forecast_unique').on(table.forecastId)]);

@@ -5,6 +5,7 @@ import { apiError, json, pathId, requireAdmin } from '@/lib/api';
 import { calculateIndicators } from '@/lib/indicators';
 import { AlphaVantageProvider } from '@/lib/market-data';
 import { recalculateScores } from '@/db/scoring';
+import { evaluateForecastResults } from '@/db/reports';
 
 export async function POST(request: Request) {
   const denied = requireAdmin(request);
@@ -24,12 +25,13 @@ export async function POST(request: Request) {
     const indicators = calculateIndicators(stored, benchmark);
     await upsertIndicators(asset.id, indicators);
     const scores = await recalculateScores();
+    const forecastResults = await evaluateForecastResults();
 
     return json({
       collection: {
         assetId: asset.id, symbol: asset.symbol, prices: prices.length,
         latestDate: stored.at(-1)?.date ?? null,
-      }, scores,
+      }, scores, forecastResults,
     });
   } catch (error) {
     return apiError(error);
