@@ -14,6 +14,8 @@ export type MarketSnapshot = {
   rsi14: number | null;
   atr14: number | null;
   relativeStrength: number | null;
+  compositeScore: number | null;
+  scoreChange1d: number | null;
 };
 
 export async function upsertPrices(assetId: number, prices: PriceBar[], source: string): Promise<void> {
@@ -69,11 +71,13 @@ export async function listHistory(assetId: number, limit = 250) {
 export async function listMarketSnapshots(): Promise<MarketSnapshot[]> {
   const result = await getDb().prepare(`SELECT a.id, a.symbol, a.name, p.date, p.close AS price,
     i.return_1d AS return1d, i.ma20, i.ma60, i.rsi14, i.atr14,
-    i.relative_strength AS relativeStrength
+    i.relative_strength AS relativeStrength, s.composite_score AS compositeScore,
+    s.score_change_1d AS scoreChange1d
     FROM assets a
     LEFT JOIN asset_prices p ON p.id=(SELECT p2.id FROM asset_prices p2
       WHERE p2.asset_id=a.id ORDER BY p2.date DESC LIMIT 1)
     LEFT JOIN asset_indicators i ON i.asset_id=a.id AND i.date=p.date
+    LEFT JOIN asset_scores s ON s.asset_id=a.id AND s.date=p.date
     WHERE a.enabled=1 ORDER BY a.importance_weight DESC, a.symbol`).all<MarketSnapshot>();
   return result.results;
 }

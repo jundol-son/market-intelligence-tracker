@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 2 Market Data입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 3 Score Engine입니다.
 
 ## Phase 1
 
@@ -15,6 +15,15 @@
 - D1 `asset_prices`, `asset_indicators` 저장 및 날짜 중복 방지
 - MA5/20/60/120/200, 괴리율, 기울기, 수익률, RSI14, ATR14, 거래량 비율, 벤치마크 상대강도 계산
 - `GET /api/assets/:id/history` 및 Dashboard 실제 데이터 표시
+
+## Phase 3
+
+- Trend / Momentum / Risk / Relative / Composite 자산 점수
+- Global / Korea / Overall 시장 점수와 Risk-On/Neutral/Risk-Off 구간
+- D1 점수 이력과 1일·5일 변화 저장
+- Admin 가중치 조회·수정·재계산
+
+점수 이력은 자산 수집 시 최신 거래일을 하루 한 번 upsert하며 앞으로 누적됩니다. 과거 100일 전체 점수 재생산은 실제 분석 필요가 생길 때 별도 backfill 작업으로 추가합니다.
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 

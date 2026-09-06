@@ -19,12 +19,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ASSET_TYPES, type AssetInput, type AssetType } from '@/lib/asset';
+import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 
 type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
 type MarketSnapshot = {
   id: number; symbol: string; name: string; date: string | null; price: number | null;
   return1d: number | null; ma20: number | null; ma60: number | null;
   rsi14: number | null; atr14: number | null; relativeStrength: number | null;
+  compositeScore: number | null; scoreChange1d: number | null;
+};
+type MarketScore = {
+  date: string; overallScore: number; globalScore: number | null; koreaScore: number | null;
+  overallChange: number | null; globalChange: number | null; koreaChange: number | null;
+  marketRegime: string;
 };
 type View = 'dashboard' | 'admin';
 
@@ -63,6 +70,8 @@ export default function Home() {
   const [view, setView] = useState<View>('dashboard');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [market, setMarket] = useState<MarketSnapshot[]>([]);
+  const [scores, setScores] = useState<MarketScore | null>(null);
+  const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [adminToken, setAdminToken] = useState(() => typeof location !== 'undefined' && location.hostname === 'localhost' ? 'local-dev-only' : '');
@@ -73,6 +82,7 @@ export default function Home() {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [collectingId, setCollectingId] = useState<number | null>(null);
+  const [savingWeights, setSavingWeights] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const data = await api<{ assets: Asset[] }>('/api/assets');
@@ -80,8 +90,9 @@ export default function Home() {
   }, []);
 
   const loadDashboard = useCallback(async () => {
-    const data = await api<{ market: MarketSnapshot[] }>('/api/dashboard');
+    const data = await api<{ market: MarketSnapshot[]; scores: MarketScore | null }>('/api/dashboard');
     setMarket(data.market);
+    setScores(data.scores);
   }, []);
 
   useEffect(() => {
@@ -89,11 +100,12 @@ export default function Home() {
     Promise.all([
       api<{ assets: Asset[] }>('/api/assets'),
       api<{ status: string }>('/api/health'),
-      api<{ market: MarketSnapshot[] }>('/api/dashboard'),
+      api<{ market: MarketSnapshot[]; scores: MarketScore | null }>('/api/dashboard'),
     ]).then(([assetData, health, dashboard]) => {
       if (!active) return;
       setAssets(assetData.assets);
       setMarket(dashboard.market);
+      setScores(dashboard.scores);
       setDbReady(health.status === 'ok');
     }).catch((error: Error) => active && setMessage(error.message))
       .finally(() => active && setLoading(false));
@@ -185,6 +197,32 @@ export default function Home() {
     }
   }
 
+  async function loadWeights() {
+    try {
+      const data = await api<{ weights: ScoreWeight[] }>('/api/admin/weights', undefined, adminToken);
+      setWeights(data.weights);
+      setMessage('점수 가중치를 불러왔습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '가중치를 불러오지 못했습니다.');
+    }
+  }
+
+  async function saveScoreWeights() {
+    setSavingWeights(true);
+    try {
+      const data = await api<{ weights: ScoreWeight[] }>('/api/admin/weights', {
+        method: 'PUT', body: JSON.stringify({ weights }),
+      }, adminToken);
+      setWeights(data.weights);
+      await loadDashboard();
+      setMessage('가중치를 저장하고 점수를 다시 계산했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '가중치를 저장하지 못했습니다.');
+    } finally {
+      setSavingWeights(false);
+    }
+  }
+
   const nav = [
     { label: 'Dashboard', icon: LayoutDashboard, target: 'dashboard' as const },
     { label: 'Reports', icon: Newspaper },
@@ -214,7 +252,7 @@ export default function Home() {
             <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : '자산 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 2</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 3</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -231,8 +269,8 @@ export default function Home() {
         <div className="mx-auto max-w-[1500px] p-5 sm:p-8">
           {message && <output className="mb-5 block rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</output>}
           {view === 'dashboard'
-            ? <Dashboard assets={assets} market={market} loading={loading} />
-            : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} />}
+            ? <Dashboard assets={assets} market={market} scores={scores} loading={loading} />
+            : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} weights={weights} savingWeights={savingWeights} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} />}
         </div>
       </section>
 
@@ -274,30 +312,36 @@ function Brand() {
 }
 
 function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 2</p></div>;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 3</p></div>;
 }
 
-function Dashboard({ assets, market, loading }: { assets: Asset[]; market: MarketSnapshot[]; loading: boolean }) {
+function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; loading: boolean }) {
   const enabled = assets.filter((asset) => asset.enabled).length;
   const live = market.filter((item) => item.price !== null);
+  const scoreCards = scores ? [
+    { label: 'Overall Market', value: scores.overallScore, change: scores.overallChange, tone: 'text-emerald-600', bar: 'bg-emerald-500' },
+    { label: 'Global Risk', value: scores.globalScore, change: scores.globalChange, tone: 'text-blue-600', bar: 'bg-blue-500' },
+    { label: 'Korea Risk', value: scores.koreaScore, change: scores.koreaChange, tone: 'text-amber-600', bar: 'bg-amber-500' },
+  ] : sampleScores.map((score) => ({ ...score, change: Number(score.change), sample: true }));
   return <div className="space-y-6">
-    <section className="grid gap-4 md:grid-cols-3" aria-label="시장 점수 예시">
-      {sampleScores.map((score) => <article key={score.label} className="overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-muted-foreground">{score.label}</p><div className="mt-2 flex items-baseline gap-2"><strong className="text-4xl font-semibold tracking-[-0.05em]">{score.value}</strong><span className={`text-sm font-semibold ${score.tone}`}>{score.change}</span></div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">예시</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${score.bar}`} style={{ width: `${score.value}%` }} /></div></article>)}
+    <section className="grid gap-4 md:grid-cols-3" aria-label="시장 점수">
+      {scoreCards.map((score) => <article key={score.label} className="overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-muted-foreground">{score.label}</p><div className="mt-2 flex items-baseline gap-2"><strong className="text-4xl font-semibold tracking-[-0.05em]">{score.value === null ? '—' : score.value.toFixed(0)}</strong><span className={`text-sm font-semibold ${score.tone}`}>{score.change === null ? '' : `${score.change > 0 ? '+' : ''}${score.change.toFixed(1)}`}</span></div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">{'sample' in score ? '예시' : scores?.marketRegime}</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${score.bar}`} style={{ width: `${score.value ?? 0}%` }} /></div></article>)}
     </section>
     <section className="grid gap-6 xl:grid-cols-[1.55fr_0.9fr]">
-      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[640px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 text-right font-medium">상대강도</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 text-right tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
-    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 2 시장 데이터</h2><p className="text-sm text-muted-foreground">일봉과 MA·수익률·RSI·ATR·상대강도를 D1에 저장합니다. 시장 점수는 Phase 3에서 연결합니다.</p></div></div></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 3 Score Engine</h2><p className="text-sm text-muted-foreground">가격 추세·모멘텀·위험·상대강도를 자산 및 시장 점수로 집계합니다.</p></div></div></section>
   </div>;
 }
 
-function Admin({ assets, loading, token, collectingId, onToken, onAdd, onCollect, onEdit, onDelete }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void }) {
+function Admin({ assets, loading, token, collectingId, weights, savingWeights, onToken, onAdd, onCollect, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; weights: ScoreWeight[]; savingWeights: boolean; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void }) {
   return <div className="space-y-6">
     <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-token">관리자 토큰</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 API 요청 때만 사용합니다.</p><Input id="admin-token" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="ADMIN_TOKEN" className="max-w-md bg-white" /></div><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>
       {loading ? <div className="grid min-h-48 place-items-center text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div> : assets.length === 0 ? <div className="grid min-h-56 place-items-center p-8 text-center"><div><Database className="mx-auto size-8 text-slate-300" /><p className="mt-4 font-medium">등록된 자산이 없습니다.</p><p className="mt-1 text-sm text-muted-foreground">첫 번째 추적 자산을 등록하세요.</p></div></div> : <Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>유형</TableHead><TableHead>시장 / 통화</TableHead><TableHead>중요도</TableHead><TableHead>상태</TableHead><TableHead className="text-right">관리</TableHead></TableRow></TableHeader><TableBody>{assets.map((asset) => <TableRow key={asset.id}><TableCell><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-muted-foreground">{asset.name}</p></TableCell><TableCell>{asset.assetType}</TableCell><TableCell>{asset.market} · {asset.currency}</TableCell><TableCell>{asset.importanceWeight}</TableCell><TableCell><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${asset.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{asset.enabled && <CheckCircle2 className="size-3" />}{asset.enabled ? '활성' : '비활성'}</span></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 가격 수집`} disabled={!token || collectingId !== null} onClick={() => onCollect(asset)}>{collectingId === asset.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 수정`} onClick={() => onEdit(asset)}><Pencil /></Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 삭제`} className="text-rose-600" onClick={() => onDelete(asset)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody></Table>}
     </section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">Score Weight</h2><p className="mt-1 text-sm text-muted-foreground">ASSET과 MARKET 그룹별 활성 가중치 합계는 각각 1이어야 합니다.</p></div><div className="flex gap-2"><Button variant="outline" onClick={onLoadWeights} disabled={!token}>불러오기</Button><Button onClick={onSaveWeights} disabled={!token || savingWeights}>{savingWeights && <Loader2 className="animate-spin" />}저장·재계산</Button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{weights.map((item, index) => <div key={`${item.scoreGroup}-${item.metricKey}`} className="rounded-xl border p-3"><Label htmlFor={`weight-${index}`}>{item.scoreGroup} · {item.metricKey}</Label><Input id={`weight-${index}`} type="number" min="0" max="1" step="0.05" value={item.weight} onChange={(event) => onWeights(weights.map((weight, weightIndex) => weightIndex === index ? { ...weight, weight: Number(event.target.value) } : weight))} /></div>)}</div></section>
   </div>;
 }
 

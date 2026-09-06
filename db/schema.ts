@@ -54,3 +54,42 @@ export const assetIndicators = sqliteTable('asset_indicators', {
   relativeStrength: real('relative_strength'),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('asset_indicators_asset_date_unique').on(table.assetId, table.date)]);
+
+export const assetScores = sqliteTable('asset_scores', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  date: text().notNull(),
+  trendScore: real('trend_score'),
+  momentumScore: real('momentum_score'),
+  riskScore: real('risk_score'),
+  technicalScore: real('technical_score'),
+  flowScore: real('flow_score'),
+  newsScore: real('news_score'),
+  relativeScore: real('relative_score'),
+  compositeScore: real('composite_score').notNull(),
+  scoreChange1d: real('score_change_1d'),
+  scoreChange5d: real('score_change_5d'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('asset_scores_asset_date_unique').on(table.assetId, table.date)]);
+
+export const marketScores = sqliteTable('market_scores', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  date: text().notNull().unique(),
+  overallScore: real('overall_score').notNull(),
+  globalScore: real('global_score'),
+  koreaScore: real('korea_score'),
+  overallChange: real('overall_change'),
+  globalChange: real('global_change'),
+  koreaChange: real('korea_change'),
+  marketRegime: text('market_regime').notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const scoreWeights = sqliteTable('score_weights', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  scoreGroup: text('score_group').notNull(),
+  metricKey: text('metric_key').notNull(),
+  weight: real().notNull(),
+  enabled: integer({ mode: 'boolean' }).notNull().default(true),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('score_weights_group_metric_unique').on(table.scoreGroup, table.metricKey)]);
