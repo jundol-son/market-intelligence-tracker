@@ -1,0 +1,284 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Activity, ArrowDownRight, ArrowUpRight, Bell, ChartNoAxesCombined, CheckCircle2,
+  CircleGauge, Database, LayoutDashboard, Loader2, Newspaper, Pencil, Plus, Settings2,
+  Star, Trash2,
+} from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ASSET_TYPES, type AssetInput, type AssetType } from '@/lib/asset';
+
+type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
+type View = 'dashboard' | 'admin';
+
+const sampleScores = [
+  { label: 'Overall Market', value: 72, change: '+4', tone: 'text-emerald-600', bar: 'bg-emerald-500' },
+  { label: 'Global Risk', value: 75, change: '+2', tone: 'text-blue-600', bar: 'bg-blue-500' },
+  { label: 'Korea Risk', value: 68, change: '-1', tone: 'text-amber-600', bar: 'bg-amber-500' },
+];
+
+const samplePulse = [
+  { symbol: 'NASDAQ', value: '18,240.11', change: '+1.21%', score: 82, up: true },
+  { symbol: 'KOSPI', value: '2,689.42', change: '+0.82%', score: 74, up: true },
+  { symbol: 'VIX', value: '14.62', change: '-3.40%', score: 81, up: false },
+  { symbol: 'US 10Y', value: '4.21%', change: '+4bp', score: 55, up: false },
+];
+
+const emptyForm: AssetInput = {
+  symbol: '', name: '', assetType: 'STOCK', market: 'NASDAQ', currency: 'USD',
+  benchmarkAssetId: null, groupId: null, enabled: true, importanceWeight: 1,
+};
+
+async function api<T>(url: string, options?: RequestInit, token?: string): Promise<T> {
+  const headers = new Headers(options?.headers);
+  headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  const data = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? '요청을 처리하지 못했습니다.');
+  return data;
+}
+
+export default function Home() {
+  const [view, setView] = useState<View>('dashboard');
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [dbReady, setDbReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [adminToken, setAdminToken] = useState(() => typeof location !== 'undefined' && location.hostname === 'localhost' ? 'local-dev-only' : '');
+  const [editing, setEditing] = useState<Asset | null>(null);
+  const [form, setForm] = useState<AssetInput>(emptyForm);
+  const [formOpen, setFormOpen] = useState(false);
+  const [deleting, setDeleting] = useState<Asset | null>(null);
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadAssets = useCallback(async () => {
+    const data = await api<{ assets: Asset[] }>('/api/assets');
+    setAssets(data.assets);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      api<{ assets: Asset[] }>('/api/assets'),
+      api<{ status: string }>('/api/health'),
+    ]).then(([assetData, health]) => {
+      if (!active) return;
+      setAssets(assetData.assets);
+      setDbReady(health.status === 'ok');
+    }).catch((error: Error) => active && setMessage(error.message))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const context = (document as Document & { modelContext?: {
+      registerTool(tool: object, options?: { signal?: AbortSignal }): void | Promise<void>;
+    } }).modelContext;
+    if (!context?.registerTool) return;
+    const lifecycle = new AbortController();
+    void Promise.resolve(context.registerTool({
+      name: 'create_asset',
+      title: '자산 등록',
+      description: '관리자 화면과 같은 검증·API를 사용해 추적 자산을 등록합니다.',
+      inputSchema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          symbol: { type: 'string' }, name: { type: 'string' },
+          assetType: { type: 'string', enum: ASSET_TYPES }, market: { type: 'string' },
+          currency: { type: 'string' }, importanceWeight: { type: 'number', minimum: 0, maximum: 100 },
+        },
+        required: ['symbol', 'name', 'assetType', 'market', 'currency'],
+      },
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      async execute(input: unknown) {
+        if (!adminToken) throw new Error('관리자 토큰을 먼저 입력하세요.');
+        const asset = { ...emptyForm, ...(input as Partial<AssetInput>) };
+        const data = await api<{ asset: Asset }>('/api/admin/assets', { method: 'POST', body: JSON.stringify(asset) }, adminToken);
+        await loadAssets();
+        return { id: data.asset.id, symbol: data.asset.symbol, status: 'created' };
+      },
+    }, { signal: lifecycle.signal })).catch(() => undefined);
+    return () => lifecycle.abort();
+  }, [adminToken, loadAssets]);
+
+  function openForm(asset?: Asset) {
+    setEditing(asset ?? null);
+    setForm(asset ? { ...asset } : { ...emptyForm });
+    setMessage('');
+    setFormOpen(true);
+  }
+
+  async function saveAsset(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    try {
+      await api(editing ? `/api/admin/assets/${editing.id}` : '/api/admin/assets', {
+        method: editing ? 'PUT' : 'POST', body: JSON.stringify(form),
+      }, adminToken);
+      await loadAssets();
+      setFormOpen(false);
+      setMessage(editing ? '자산을 수정했습니다.' : '자산을 등록했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '저장하지 못했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeAsset() {
+    if (!deleting) return;
+    try {
+      await api(`/api/admin/assets/${deleting.id}`, { method: 'DELETE' }, adminToken);
+      await loadAssets();
+      setMessage(`${deleting.symbol}을 삭제했습니다.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '삭제하지 못했습니다.');
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  const nav = [
+    { label: 'Dashboard', icon: LayoutDashboard, target: 'dashboard' as const },
+    { label: 'Reports', icon: Newspaper },
+    { label: 'Watchlist', icon: Star },
+    { label: 'Admin', icon: Settings2, target: 'admin' as const },
+  ];
+
+  return (
+    <main className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
+      <aside className="hidden min-h-screen bg-sidebar px-5 py-7 text-sidebar-foreground lg:flex lg:flex-col">
+        <Brand />
+        <nav aria-label="주 메뉴" className="mt-10 space-y-1">
+          {nav.map(({ label, icon: Icon, target }) => (
+            <button key={label} type="button" disabled={!target} onClick={() => target && setView(target)}
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${view === target ? 'bg-sidebar-accent text-white' : 'text-slate-400 hover:bg-sidebar-accent hover:text-white'}`}>
+              <Icon className="size-4" />{label}{!target && <span className="ml-auto text-[11px]">준비 중</span>}
+            </button>
+          ))}
+        </nav>
+        <Status dbReady={dbReady} />
+      </aside>
+
+      <section className="min-w-0">
+        <header className="flex min-h-20 items-center justify-between border-b bg-white/70 px-5 py-3 backdrop-blur-xl sm:px-8">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Market intelligence</p>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : '자산 관리'}</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 1</span>
+            <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
+          </div>
+        </header>
+
+        <nav aria-label="모바일 주 메뉴" className="flex gap-2 overflow-x-auto border-b bg-white px-4 py-3 lg:hidden">
+          {nav.map(({ label, icon: Icon, target }) => (
+            <button key={label} type="button" disabled={!target} onClick={() => target && setView(target)}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-40 ${view === target ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+              <Icon className="size-4" />{label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="mx-auto max-w-[1500px] p-5 sm:p-8">
+          {message && <output className="mb-5 block rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</output>}
+          {view === 'dashboard'
+            ? <Dashboard assets={assets} loading={loading} />
+            : <Admin assets={assets} loading={loading} token={adminToken} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} />}
+        </div>
+      </section>
+
+      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <form onSubmit={saveAsset}>
+            <DialogHeader>
+              <DialogTitle>{editing ? '자산 수정' : '자산 등록'}</DialogTitle>
+              <DialogDescription>시세 수집과 점수 계산에 사용할 기본 정보를 입력하세요.</DialogDescription>
+            </DialogHeader>
+            <AssetForm value={form} onChange={(value) => setForm(value)} />
+            {message && <p className="mt-3 text-sm text-rose-600">{message}</p>}
+            <DialogFooter className="mt-5">
+              <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>취소</Button>
+              <Button type="submit" disabled={saving || !adminToken}>{saving && <Loader2 className="animate-spin" />}{editing ? '변경 저장' : '자산 등록'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deleting?.symbol}을 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription>이 자산은 추적 목록에서 영구 삭제됩니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={removeAsset}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </main>
+  );
+}
+
+function Brand() {
+  return <div className="flex items-center gap-3 px-2"><span className="grid size-10 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground"><ChartNoAxesCombined className="size-5" /></span><div><p className="font-semibold tracking-tight">Market Intel</p><p className="text-xs text-slate-400">Signal desk</p></div></div>;
+}
+
+function Status({ dbReady }: { dbReady: boolean }) {
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 1</p></div>;
+}
+
+function Dashboard({ assets, loading }: { assets: Asset[]; loading: boolean }) {
+  const enabled = assets.filter((asset) => asset.enabled).length;
+  return <div className="space-y-6">
+    <section className="grid gap-4 md:grid-cols-3" aria-label="시장 점수 예시">
+      {sampleScores.map((score) => <article key={score.label} className="overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-muted-foreground">{score.label}</p><div className="mt-2 flex items-baseline gap-2"><strong className="text-4xl font-semibold tracking-[-0.05em]">{score.value}</strong><span className={`text-sm font-semibold ${score.tone}`}>{score.change}</span></div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">예시</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${score.bar}`} style={{ width: `${score.value}%` }} /></div></article>)}
+    </section>
+    <section className="grid gap-6 xl:grid-cols-[1.55fr_0.9fr]">
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">Phase 2 연결 전 설계 기준 예시</p></div><span className="text-xs font-medium text-muted-foreground">Sample</span></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table></div></article>
+      <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Foundation status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />활성 {loading ? '—' : enabled}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">D1 자산 목록이 연결됐습니다. 가격 수집과 실제 점수는 다음 Phase에서 이 기반 위에 추가됩니다.</p></article>
+    </section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 1 준비 완료</h2><p className="text-sm text-muted-foreground">Admin에서 자산을 등록하면 다음 단계의 수집 대상을 바로 정의할 수 있습니다.</p></div></div></section>
+  </div>;
+}
+
+function Admin({ assets, loading, token, onToken, onAdd, onEdit, onDelete }: { assets: Asset[]; loading: boolean; token: string; onToken: (value: string) => void; onAdd: () => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void }) {
+  return <div className="space-y-6">
+    <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-token">관리자 토큰</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 API 요청 때만 사용합니다.</p><Input id="admin-token" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="ADMIN_TOKEN" className="max-w-md bg-white" /></div><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>
+      {loading ? <div className="grid min-h-48 place-items-center text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div> : assets.length === 0 ? <div className="grid min-h-56 place-items-center p-8 text-center"><div><Database className="mx-auto size-8 text-slate-300" /><p className="mt-4 font-medium">등록된 자산이 없습니다.</p><p className="mt-1 text-sm text-muted-foreground">첫 번째 추적 자산을 등록하세요.</p></div></div> : <Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>유형</TableHead><TableHead>시장 / 통화</TableHead><TableHead>중요도</TableHead><TableHead>상태</TableHead><TableHead className="text-right">관리</TableHead></TableRow></TableHeader><TableBody>{assets.map((asset) => <TableRow key={asset.id}><TableCell><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-muted-foreground">{asset.name}</p></TableCell><TableCell>{asset.assetType}</TableCell><TableCell>{asset.market} · {asset.currency}</TableCell><TableCell>{asset.importanceWeight}</TableCell><TableCell><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${asset.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{asset.enabled && <CheckCircle2 className="size-3" />}{asset.enabled ? '활성' : '비활성'}</span></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 수정`} onClick={() => onEdit(asset)}><Pencil /></Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 삭제`} className="text-rose-600" onClick={() => onDelete(asset)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody></Table>}
+    </section>
+  </div>;
+}
+
+function AssetForm({ value, onChange }: { value: AssetInput; onChange: (value: AssetInput) => void }) {
+  const set = <K extends keyof AssetInput>(key: K, next: AssetInput[K]) => onChange({ ...value, [key]: next });
+  return <div className="mt-5 grid gap-4 sm:grid-cols-2">
+    <div><Label htmlFor="symbol">티커</Label><Input id="symbol" required maxLength={24} value={value.symbol} onChange={(e) => set('symbol', e.target.value)} placeholder="NVDA" /></div>
+    <div><Label htmlFor="name">이름</Label><Input id="name" required maxLength={80} value={value.name} onChange={(e) => set('name', e.target.value)} placeholder="NVIDIA" /></div>
+    <div><Label htmlFor="asset-type">자산 유형</Label><select id="asset-type" value={value.assetType} onChange={(e) => set('assetType', e.target.value as AssetType)} className="mt-1 flex h-9 w-full rounded-md border bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring">{ASSET_TYPES.map((type) => <option key={type}>{type}</option>)}</select></div>
+    <div><Label htmlFor="market">시장</Label><Input id="market" required maxLength={20} value={value.market} onChange={(e) => set('market', e.target.value)} placeholder="NASDAQ" /></div>
+    <div><Label htmlFor="currency">통화</Label><Input id="currency" required maxLength={3} value={value.currency} onChange={(e) => set('currency', e.target.value)} placeholder="USD" /></div>
+    <div><Label htmlFor="weight">중요도 (0~100)</Label><Input id="weight" required type="number" min="0" max="100" step="0.1" value={value.importanceWeight} onChange={(e) => set('importanceWeight', Number(e.target.value))} /></div>
+    <div className="sm:col-span-2 flex items-center justify-between rounded-xl border p-3"><div><Label htmlFor="enabled">추적 활성화</Label><p className="text-xs text-muted-foreground">다음 수집 작업에 포함합니다.</p></div><Switch id="enabled" checked={value.enabled} onCheckedChange={(checked) => set('enabled', checked)} /></div>
+  </div>;
+}

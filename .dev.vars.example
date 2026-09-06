@@ -1,0 +1,2 @@
+# Copy to .dev.vars only if you replace the local Vite binding.
+ADMIN_TOKEN=replace-with-a-long-random-value
