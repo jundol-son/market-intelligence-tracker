@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "db:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc --persist-to .wrangler/state",
-    "test": "node --experimental-strip-types lib/asset.test.ts && node --experimental-strip-types lib/indicators.test.ts && node --experimental-strip-types lib/scoring.test.ts && node --experimental-strip-types lib/report.test.ts && node --experimental-strip-types lib/news.test.ts && node --experimental-strip-types lib/economic-event.test.ts"
+    "test": "node --experimental-strip-types lib/asset.test.ts && node --experimental-strip-types lib/indicators.test.ts && node --experimental-strip-types lib/scoring.test.ts && node --experimental-strip-types lib/report.test.ts && node --experimental-strip-types lib/news.test.ts && node --experimental-strip-types lib/economic-event.test.ts && node --experimental-strip-types lib/forecast.test.ts"
   },
   "dependencies": {
     "react": "19.2.6",

@@ -164,6 +164,17 @@ export const forecastResults = sqliteTable('forecast_results', {
   evaluatedAt: text('evaluated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('forecast_results_forecast_unique').on(table.forecastId)]);
 
+export const similarDays = sqliteTable('similar_days', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  reportId: integer('report_id').notNull().references(() => reports.id, { onDelete: 'cascade' }),
+  targetAssetId: integer('target_asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+  historicalDate: text('historical_date').notNull(),
+  similarityScore: real('similarity_score').notNull(),
+  nextDayReturn: real('next_day_return').notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('similar_days_report_asset_date_unique')
+  .on(table.reportId, table.targetAssetId, table.historicalDate)]);
+
 export const newsEvents = sqliteTable('news_events', {
   id: integer().primaryKey({ autoIncrement: true }),
   fingerprint: text().notNull().unique(),

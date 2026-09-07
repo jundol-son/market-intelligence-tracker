@@ -1,5 +1,6 @@
 import { getDb } from './index';
 import { getLatestMarketScore } from './scoring';
+import { createForecast, findSimilarDays, responseLevel, type HistoricalDay, type SimilarityFeatures } from '@/lib/forecast';
 import { evaluateForecast, reportSummary } from '@/lib/report';
 
 type MarketScore = {
@@ -41,7 +42,10 @@ export async function generateDailyReport() {
 
   const existing = await db.prepare(`SELECT id FROM reports
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
-  if (existing) return { id: existing.id, created: false };
+  if (existing) {
+    await generateForecasts(existing.id);
+    return { id: existing.id, created: false };
+  }
 
   const metrics = await db.prepare(`SELECT a.id AS assetId, a.symbol, a.name, p.close AS price,
     i.return_1d AS dailyReturn, i.ma20, i.ma60, i.ma120, i.ma200,
@@ -79,6 +83,7 @@ export async function generateDailyReport() {
   const report = await db.prepare(`SELECT id FROM reports
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
   if (!report) throw new Error('리포트 저장에 실패했습니다.');
+  await generateForecasts(report.id);
   return { id: report.id, created: true };
 }
 
@@ -102,7 +107,7 @@ export async function getReport(id: number) {
     base_probability AS baseProbability, bear_probability AS bearProbability,
     confidence, created_at AS createdAt FROM reports WHERE id=?`).bind(id).first();
   if (!report) return null;
-  const [metrics, forecastRows] = await Promise.all([
+  const [metrics, forecastRows, similarRows] = await Promise.all([
     db.prepare(`SELECT asset_id AS assetId, symbol, name, price, daily_return AS dailyReturn,
       ma20, ma60, ma120, ma200, ma20_distance AS ma20Distance,
       ma60_distance AS ma60Distance, ma120_distance AS ma120Distance,
@@ -119,8 +124,107 @@ export async function getReport(id: number) {
       x.range_hit AS rangeHit, x.evaluated_at AS evaluatedAt
       FROM forecasts f LEFT JOIN report_metrics m ON m.report_id=f.report_id AND m.asset_id=f.target_asset_id
       LEFT JOIN forecast_results x ON x.forecast_id=f.id WHERE f.report_id=? ORDER BY f.id`).bind(id).all(),
+    db.prepare(`SELECT s.target_asset_id AS targetAssetId, m.symbol,
+      s.historical_date AS historicalDate, s.similarity_score AS similarityScore,
+      s.next_day_return AS nextDayReturn FROM similar_days s
+      LEFT JOIN report_metrics m ON m.report_id=s.report_id AND m.asset_id=s.target_asset_id
+      WHERE s.report_id=? ORDER BY s.similarity_score DESC, s.historical_date DESC`).bind(id).all(),
   ]);
-  return { report, metrics: metrics.results, forecasts: forecastRows.results };
+  return {
+    report,
+    metrics: metrics.results,
+    forecasts: forecastRows.results.map((forecast) => ({
+      ...forecast,
+      responseLevel: responseLevel(forecast as Parameters<typeof responseLevel>[0]),
+    })),
+    similarDays: similarRows.results,
+  };
+}
+
+type ForecastTarget = SimilarityFeatures & {
+  reportDate: string;
+  targetAssetId: number;
+  compositeScore: number;
+  newsScore: number | null;
+};
+
+export async function generateForecasts(reportId: number) {
+  const db = getDb();
+  const targets = await db.prepare(`SELECT r.report_date AS reportDate, m.asset_id AS targetAssetId,
+    m.composite_score AS compositeScore, m.news_score AS newsScore,
+    i.return_1d AS return1d, i.return_5d AS return5d, i.return_20d AS return20d,
+    i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance, i.rsi14,
+    i.atr14 / p.close * 100 AS atrPercent, i.volume_ratio AS volumeRatio
+    FROM report_metrics m JOIN reports r ON r.id=m.report_id
+    JOIN asset_indicators i ON i.asset_id=m.asset_id AND i.date=r.report_date
+    JOIN asset_prices p ON p.asset_id=m.asset_id AND p.date=r.report_date
+    WHERE m.report_id=? AND m.composite_score IS NOT NULL
+      AND i.return_1d IS NOT NULL AND i.return_5d IS NOT NULL AND i.return_20d IS NOT NULL
+      AND i.ma20_distance IS NOT NULL AND i.ma60_distance IS NOT NULL
+      AND i.rsi14 IS NOT NULL AND i.atr14 IS NOT NULL AND i.volume_ratio IS NOT NULL`)
+    .bind(reportId).all<ForecastTarget>();
+  const maxImpact = await db.prepare(`SELECT COALESCE(MAX(expected_impact), 0) AS value
+    FROM economic_events WHERE status='SCHEDULED'
+      AND datetime(scheduled_at)>datetime((SELECT report_date FROM reports WHERE id=?))
+      AND datetime(scheduled_at)<=datetime((SELECT report_date FROM reports WHERE id=?), '+7 days')`)
+    .bind(reportId, reportId).first<{ value: number }>();
+  let created = 0;
+
+  // ponytail: compare at most 500 local observations in memory; move to a vector index only after multi-year, multi-asset history makes this measurable.
+  for (const target of targets.results) {
+    const exists = await db.prepare('SELECT id FROM forecasts WHERE report_id=? AND target_asset_id=?')
+      .bind(reportId, target.targetAssetId).first<{ id: number }>();
+    if (exists) continue;
+    const history = await db.prepare(`SELECT i.date, i.return_1d AS return1d,
+      i.return_5d AS return5d, i.return_20d AS return20d,
+      i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance, i.rsi14,
+      i.atr14 / p.close * 100 AS atrPercent, i.volume_ratio AS volumeRatio,
+      (SELECT n.return_1d FROM asset_indicators n WHERE n.asset_id=i.asset_id
+        AND n.date>i.date ORDER BY n.date LIMIT 1) AS nextDayReturn
+      FROM asset_indicators i JOIN asset_prices p ON p.asset_id=i.asset_id AND p.date=i.date
+      WHERE i.asset_id=? AND i.date<? AND i.return_1d IS NOT NULL AND i.return_5d IS NOT NULL
+        AND i.return_20d IS NOT NULL AND i.ma20_distance IS NOT NULL
+        AND i.ma60_distance IS NOT NULL AND i.rsi14 IS NOT NULL AND i.atr14 IS NOT NULL
+        AND i.volume_ratio IS NOT NULL ORDER BY i.date DESC LIMIT 500`)
+      .bind(target.targetAssetId, target.reportDate).all<HistoricalDay>();
+    const similar = findSimilarDays(target, history.results.filter((day) => day.nextDayReturn !== null));
+    if (similar.length < 5) continue;
+    const forecast = createForecast(similar, target.compositeScore, target.newsScore, maxImpact?.value ?? 0);
+    const inserted = await db.prepare(`INSERT OR IGNORE INTO forecasts
+      (report_id, target_asset_id, up_probability, down_probability, expected_low, expected_high,
+        bull_probability, base_probability, bear_probability, confidence)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+      .bind(reportId, target.targetAssetId, forecast.upProbability, forecast.downProbability,
+        forecast.expectedLow, forecast.expectedHigh, forecast.bullProbability,
+        forecast.baseProbability, forecast.bearProbability, forecast.confidence)
+      .first<{ id: number }>();
+    if (!inserted) continue;
+    await db.batch(similar.map((day) => db.prepare(`INSERT OR IGNORE INTO similar_days
+      (report_id, target_asset_id, historical_date, similarity_score, next_day_return)
+      VALUES (?, ?, ?, ?, ?)`)
+      .bind(reportId, target.targetAssetId, day.date, day.similarityScore, day.nextDayReturn)));
+    created += 1;
+  }
+
+  const aggregate = await db.prepare(`SELECT AVG(up_probability) AS upProbability,
+    AVG(down_probability) AS downProbability, AVG(expected_low) AS expectedLow,
+    AVG(expected_high) AS expectedHigh, AVG(bull_probability) AS bullProbability,
+    AVG(base_probability) AS baseProbability, AVG(bear_probability) AS bearProbability,
+    AVG(confidence) AS confidence FROM forecasts WHERE report_id=?`).bind(reportId).first<{
+      upProbability: number | null; downProbability: number | null;
+      expectedLow: number | null; expectedHigh: number | null;
+      bullProbability: number | null; baseProbability: number | null;
+      bearProbability: number | null; confidence: number | null;
+    }>();
+  if (aggregate && aggregate.upProbability !== null) {
+    await db.prepare(`UPDATE reports SET up_probability=?, down_probability=?, expected_low=?,
+      expected_high=?, bull_probability=?, base_probability=?, bear_probability=?, confidence=?
+      WHERE id=? AND up_probability IS NULL`)
+      .bind(aggregate.upProbability, aggregate.downProbability, aggregate.expectedLow,
+        aggregate.expectedHigh, aggregate.bullProbability, aggregate.baseProbability,
+        aggregate.bearProbability, aggregate.confidence, reportId).run();
+  }
+  return created;
 }
 
 type PendingForecast = {

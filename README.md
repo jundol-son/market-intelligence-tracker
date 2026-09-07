@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 6 Economic Calendar입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 7 Similarity / Forecast입니다.
 
 ## Phase 1
 
@@ -48,6 +48,16 @@
 - Reports 화면의 다가오는 주요 이벤트 노출
 
 초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록합니다. 일정 변경은 Admin 토큰 입력 후 Calendar에서 수정할 수 있으며 추가 API 토큰은 필요하지 않습니다.
+
+## Phase 7
+
+- 수익률·MA 괴리·RSI·ATR·거래량 비율 기반 Similar Historical Days
+- 상위 20개 유사일의 실제 다음 거래일 수익률 저장
+- 자산 점수·News Score·7일 내 예정 이벤트를 반영한 상승/하락 확률과 신뢰도
+- 20/80 분위수 Expected Range와 Bull/Base/Bear 확률
+- 매수·매도 명령 대신 관망·변동성 대비 등 대응 레벨 표시
+
+Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트를 다시 열어도 결과가 바뀌지 않습니다. 비교 가능한 과거 데이터가 5일 미만인 자산은 예측을 만들지 않습니다.
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
