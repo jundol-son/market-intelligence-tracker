@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 8 Notifications입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 9 Analytics입니다.
 
 ## Phase 1
 
@@ -67,6 +67,15 @@ Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트
 - 15분 Cron 확인, 리포트별 중복 발송 방지, 최근 Job/발송 결과 기록
 - 비밀값 존재 여부만 Admin에 표시하며 실제 값은 Worker Secret으로만 보관
 
+## Phase 9
+
+- 30일·90일 Direction Accuracy와 Expected Range Hit Rate
+- Risk-On / Risk-Off 다음 거래일 평균 성과
+- 발행 시점 Composite Score 구간별 표본·평균 수익률·방향 적중률
+- 최근 Forecast 평가 결과 20건
+
+Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로 집계하므로 별도 migration이 없습니다. 다음 거래일 가격이 수집되어 평가된 Forecast부터 자동 반영됩니다.
+
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
 ## 로컬 실행
@@ -79,7 +88,7 @@ npm run db:local
 npm run dev
 ```
 
-기본 개발 토큰은 `local-dev-only`입니다. 검증은 다음 명령으로 실행합니다.
+기본 개발 비밀번호는 `local-dev-only`입니다. 검증은 다음 명령으로 실행합니다.
 
 ```powershell
 npm test

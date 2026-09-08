@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ASSET_TYPES, type AssetInput, type AssetType } from '@/lib/asset';
+import type { AnalyticsState } from '@/lib/analytics';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 
@@ -96,7 +97,7 @@ type NotificationState = {
   jobs: NotificationJob[];
   deliveries: Array<{ id: number; channel: NotificationChannel; reportDate: string; status: string; errorMessage: string | null; sentAt: string | null }>;
 };
-type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'admin';
+type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'analytics' | 'admin';
 
 const sampleScores = [
   { label: 'Overall Market', value: 72, change: '+4', tone: 'text-emerald-600', bar: 'bg-emerald-500' },
@@ -154,6 +155,7 @@ export default function Home() {
   const [news, setNews] = useState<NewsData>({ events: [], scores: [] });
   const [economicEvents, setEconomicEvents] = useState<EconomicEvent[]>([]);
   const [notifications, setNotifications] = useState<NotificationState>(emptyNotifications);
+  const [analytics, setAnalytics] = useState<AnalyticsState | null>(null);
   const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -178,6 +180,7 @@ export default function Home() {
   const [savingEvent, setSavingEvent] = useState(false);
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [sendingNotifications, setSendingNotifications] = useState(false);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const data = await api<{ assets: Asset[] }>('/api/assets');
@@ -221,6 +224,15 @@ export default function Home() {
       setEconomicEvents(data.events);
     } finally {
       setLoadingCalendar(false);
+    }
+  }, []);
+
+  const loadAnalytics = useCallback(async () => {
+    setLoadingAnalytics(true);
+    try {
+      setAnalytics(await api<AnalyticsState>('/api/analytics'));
+    } finally {
+      setLoadingAnalytics(false);
     }
   }, []);
 
@@ -480,6 +492,7 @@ export default function Home() {
     if (target === 'reports') void Promise.all([loadReports(), loadCalendar()]).catch((error: Error) => setMessage(error.message));
     if (target === 'news') void loadNews().catch((error: Error) => setMessage(error.message));
     if (target === 'calendar') void loadCalendar().catch((error: Error) => setMessage(error.message));
+    if (target === 'analytics') void loadAnalytics().catch((error: Error) => setMessage(error.message));
     if (target === 'admin' && adminToken) void loadNotifications();
   }
 
@@ -488,6 +501,7 @@ export default function Home() {
     { label: 'Reports', icon: Newspaper, target: 'reports' as const },
     { label: 'News', icon: Bell, target: 'news' as const },
     { label: 'Calendar', icon: CalendarDays, target: 'calendar' as const },
+    { label: 'Analytics', icon: ChartNoAxesCombined, target: 'analytics' as const },
     { label: 'Watchlist', icon: Star },
     { label: 'Admin', icon: Settings2, target: 'admin' as const },
   ];
@@ -511,10 +525,10 @@ export default function Home() {
         <header className="flex min-h-20 items-center justify-between border-b bg-white/70 px-5 py-3 backdrop-blur-xl sm:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Market intelligence</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : '운영 관리'}</h1>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : view === 'analytics' ? 'Model Analytics' : '운영 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 8</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 9</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -538,7 +552,9 @@ export default function Home() {
                 ? <News news={news} loading={loadingNews} />
                 : view === 'calendar'
                   ? <EconomicCalendar events={economicEvents} loading={loadingCalendar} canManage={Boolean(adminToken)} onAdd={() => openEventForm()} onEdit={openEventForm} onDelete={setDeletingEvent} />
-                  : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} notifications={notifications} savingNotifications={savingNotifications} sendingNotifications={sendingNotifications} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} onNotifications={setNotifications} onLoadNotifications={loadNotifications} onSaveNotifications={saveNotifications} onSendNotifications={sendNotificationsNow} />}
+                  : view === 'analytics'
+                    ? <Analytics data={analytics} loading={loadingAnalytics} />
+                    : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} notifications={notifications} savingNotifications={savingNotifications} sendingNotifications={sendingNotifications} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} onNotifications={setNotifications} onLoadNotifications={loadNotifications} onSaveNotifications={saveNotifications} onSendNotifications={sendNotificationsNow} />}
         </div>
       </section>
 
@@ -609,7 +625,7 @@ function Brand() {
 }
 
 function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 8</p></div>;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 9</p></div>;
 }
 
 function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; loading: boolean }) {
@@ -628,7 +644,25 @@ function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; marke
       <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
-    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Bell className="size-5" /></span><div><h2 className="font-semibold">Phase 8 Notifications</h2><p className="text-sm text-muted-foreground">Daily Report를 Telegram 요약과 Email 상세본으로 한 번씩 전달합니다.</p></div></div></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><ChartNoAxesCombined className="size-5" /></span><div><h2 className="font-semibold">Phase 9 Analytics</h2><p className="text-sm text-muted-foreground">예측 결과가 쌓이면 방향·범위 적중률과 시장 구간별 성과를 자동 집계합니다.</p></div></div></section>
+  </div>;
+}
+
+function Analytics({ data, loading }: { data: AnalyticsState | null; loading: boolean }) {
+  if (loading && !data) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  if (!data?.total) return <section className="grid min-h-80 place-items-center rounded-2xl border bg-card p-8 text-center"><div><ChartNoAxesCombined className="mx-auto size-10 text-slate-300" /><h2 className="mt-4 font-semibold">평가된 Forecast가 아직 없습니다.</h2><p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Daily Report 이후 다음 거래일 가격을 수집하면 Direction Accuracy와 Range Hit Rate가 자동으로 채워집니다.</p></div></section>;
+  const percent = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
+  const performance = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+  return <div className="space-y-6">
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {[['30D Direction Accuracy', percent(data.direction30.accuracy), `${data.direction30.count}건`], ['90D Direction Accuracy', percent(data.direction90.accuracy), `${data.direction90.count}건`], ['Expected Range Hit Rate', percent(data.rangeHitRate), `${data.total}건`], ['Evaluated Forecasts', data.total.toLocaleString(), `기준 ${data.asOf}`]].map(([label, value, note]) => <article key={label} className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><p className="text-sm font-medium text-muted-foreground">{label}</p><strong className="mt-3 block text-3xl tracking-tight">{value}</strong><p className="mt-2 text-xs text-muted-foreground">{note}</p></article>)}
+    </section>
+    <section className="grid gap-4 md:grid-cols-2">
+      <article className="rounded-2xl border bg-emerald-50/60 p-5"><p className="text-sm font-semibold text-emerald-800">Risk-On Next Day</p><strong className="mt-2 block text-3xl text-emerald-700">{performance(data.riskOn.averageReturn)}</strong><p className="mt-2 text-xs text-emerald-700/70">평가 {data.riskOn.count}건 평균</p></article>
+      <article className="rounded-2xl border bg-rose-50/60 p-5"><p className="text-sm font-semibold text-rose-800">Risk-Off Next Day</p><strong className="mt-2 block text-3xl text-rose-700">{performance(data.riskOff.averageReturn)}</strong><p className="mt-2 text-xs text-rose-700/70">평가 {data.riskOff.count}건 평균</p></article>
+    </section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="border-b px-5 py-4"><h2 className="font-semibold">Score Performance</h2><p className="mt-1 text-sm text-muted-foreground">발행 시점 Composite Score 구간별 다음 거래일 결과입니다.</p></div><Table><TableHeader><TableRow><TableHead>Score 구간</TableHead><TableHead>표본</TableHead><TableHead>평균 수익률</TableHead><TableHead>방향 적중률</TableHead></TableRow></TableHeader><TableBody>{data.scorePerformance.map((bucket) => <TableRow key={bucket.label}><TableCell><span className="font-semibold">{bucket.label}</span><span className="ml-2 text-xs text-muted-foreground">{bucket.min}–{bucket.max}</span></TableCell><TableCell>{bucket.count}</TableCell><TableCell>{performance(bucket.averageReturn)}</TableCell><TableCell>{percent(bucket.directionAccuracy)}</TableCell></TableRow>)}</TableBody></Table></section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="border-b px-5 py-4"><h2 className="font-semibold">Recent Forecast Results</h2><p className="mt-1 text-sm text-muted-foreground">최근 평가 결과 20건</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Report</TableHead><TableHead>자산</TableHead><TableHead>Up 확률</TableHead><TableHead>예상 범위</TableHead><TableHead>실제</TableHead><TableHead>방향</TableHead><TableHead>범위</TableHead></TableRow></TableHeader><TableBody>{data.recentResults.map((result, index) => <TableRow key={`${result.reportDate}-${result.symbol}-${index}`}><TableCell>{result.reportDate}</TableCell><TableCell className="font-semibold">{result.symbol ?? '—'}</TableCell><TableCell>{percent(result.upProbability)}</TableCell><TableCell>{performance(result.expectedLow)} ~ {performance(result.expectedHigh)}</TableCell><TableCell className={result.actualReturn >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{performance(result.actualReturn)}</TableCell><TableCell>{result.directionHit ? 'HIT' : 'MISS'}</TableCell><TableCell>{result.rangeHit ? 'HIT' : 'MISS'}</TableCell></TableRow>)}</TableBody></Table></div></section>
   </div>;
 }
 
