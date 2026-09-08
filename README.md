@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 9 Analytics입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 10 Data Coverage입니다.
 
 ## Phase 1
 
@@ -76,6 +76,17 @@ Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트
 
 Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로 집계하므로 별도 migration이 없습니다. 다음 거래일 가격이 수집되어 평가된 Forecast부터 자동 반영됩니다.
 
+## Phase 10
+
+- `POST /api/admin/bootstrap`: 기준 명세의 기본 20개 지표를 API 호출 없이 중복 안전하게 등록
+- `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
+- Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 24시간 중복 호출 방지
+- 주식/ETF, FX, Crypto, Treasury Yield, WTI, Brent, Gold 응답 형식 지원
+- US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
+- VIX·DXY·US 2Y·US 10Y의 추세/모멘텀은 상승을 위험 증가 방향으로 반전해 점수 계산
+
+프록시는 자산 이름에 원본 심볼을 표시합니다. KOSDAQ·한국 외국인 수급·시장폭은 신뢰할 무료 소스를 연결할 때까지 비활성 등록됩니다.
+
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
 ## 로컬 실행
@@ -125,6 +136,6 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 ## 무료 플랜 주의사항
 
-가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자산별 버튼을 필요할 때만 실행하고, MA120/200은 데이터가 충분히 누적될 때까지 `null`입니다. 시장별 심볼 지원과 데이터 이용 조건은 등록 전에 확인해야 합니다.
+가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
 
 알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. Cloudflare Email은 계정에서 검증한 수신 주소로 보내는 경우 Free plan에서도 무료이며, 발신 도메인과 수신 주소 확인이 먼저 필요합니다.

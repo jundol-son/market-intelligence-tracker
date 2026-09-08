@@ -1,8 +1,9 @@
 import { getDb } from './index';
-import { calculateAssetScore, DEFAULT_WEIGHTS, type ScoreInput, type ScoreWeight, weightedMarketScore } from '@/lib/scoring';
+import { calculateAssetScore, DEFAULT_WEIGHTS, orientScoreInput, type ScoreInput, type ScoreWeight, weightedMarketScore } from '@/lib/scoring';
 
 type ScorableAsset = ScoreInput & {
   id: number;
+  symbol: string;
   market: string;
   importanceWeight: number;
   date: string;
@@ -39,7 +40,7 @@ export async function recalculateScores() {
   const db = getDb();
   const weights = await getWeights();
   // ponytail: score the latest stored date only; add an explicit offline backfill when replay is required.
-  const input = await db.prepare(`SELECT a.id, a.market, a.importance_weight AS importanceWeight,
+  const input = await db.prepare(`SELECT a.id, a.symbol, a.market, a.importance_weight AS importanceWeight,
     p.date, p.close, i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance,
     i.ma20_slope AS ma20Slope, i.ma60_slope AS ma60Slope, i.rsi14, i.atr14,
     i.return_5d AS return5d, i.return_20d AS return20d,
@@ -51,7 +52,7 @@ export async function recalculateScores() {
 
   const scored = [] as Array<ScorableAsset & { compositeScore: number }>;
   for (const asset of input.results) {
-    const score = calculateAssetScore(asset, weights);
+    const score = calculateAssetScore(orientScoreInput(asset, /^(VIX|DXY|US2Y|US10Y)$/.test(asset.symbol)), weights);
     const prior = await priorScores(asset.id, asset.date);
     await db.prepare(`INSERT INTO asset_scores
       (asset_id, date, trend_score, momentum_score, risk_score, technical_score,

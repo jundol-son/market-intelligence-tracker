@@ -27,6 +27,19 @@ export type ScoreInput = {
   relativeStrength: number | null;
 };
 
+export function orientScoreInput(input: ScoreInput, inverse: boolean): ScoreInput {
+  if (!inverse) return input;
+  const flip = (value: number | null) => value === null ? null : -value;
+  return {
+    ...input,
+    ma20Distance: flip(input.ma20Distance), ma60Distance: flip(input.ma60Distance),
+    ma20Slope: flip(input.ma20Slope), ma60Slope: flip(input.ma60Slope),
+    rsi14: input.rsi14 === null ? null : 100 - input.rsi14,
+    return5d: flip(input.return5d), return20d: flip(input.return20d),
+    relativeStrength: flip(input.relativeStrength),
+  };
+}
+
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const contribution = (value: number | null, factor: number, limit: number) =>
   value === null ? 0 : clamp(value * factor, -limit, limit);

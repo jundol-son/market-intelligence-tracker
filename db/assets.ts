@@ -1,4 +1,5 @@
 import type { AssetInput } from '@/lib/asset';
+import { DEFAULT_ASSETS } from '@/lib/catalog';
 import { getDb } from './index';
 
 export type Asset = AssetInput & {
@@ -14,6 +15,17 @@ const SELECT = `SELECT id, symbol, name, asset_type AS assetType, market, curren
 
 export async function listAssets(): Promise<Asset[]> {
   const result = await getDb().prepare(`${SELECT} ORDER BY symbol`).all<Asset>();
+  return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));
+}
+
+export async function listAssetsForCollection(): Promise<Array<Asset & { lastAttemptAt: string | null }>> {
+  const result = await getDb().prepare(`SELECT id, symbol, name, asset_type AS assetType, market, currency,
+    benchmark_asset_id AS benchmarkAssetId, group_id AS groupId, enabled,
+    importance_weight AS importanceWeight, created_at AS createdAt, updated_at AS updatedAt,
+    (SELECT MAX(j.started_at) FROM job_runs j
+      WHERE j.job_name='ALPHA_API:PRICE:' || assets.symbol) AS lastAttemptAt
+    FROM assets ORDER BY lastAttemptAt IS NOT NULL, datetime(lastAttemptAt), importance_weight DESC, symbol`)
+    .all<Asset & { lastAttemptAt: string | null }>();
   return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));
 }
 
@@ -34,6 +46,19 @@ export async function createAsset(input: AssetInput): Promise<Asset> {
     .first<Asset>();
   if (!asset) throw new Error('자산을 저장하지 못했습니다.');
   return { ...asset, enabled: Boolean(asset.enabled) };
+}
+
+export async function seedDefaultAssets() {
+  const db = getDb();
+  const before = await db.prepare('SELECT COUNT(*) AS count FROM assets').first<{ count: number }>();
+  await db.batch(DEFAULT_ASSETS.map((input) => db.prepare(`INSERT OR IGNORE INTO assets
+    (symbol, name, asset_type, market, currency, benchmark_asset_id, group_id, enabled, importance_weight)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    input.symbol, input.name, input.assetType, input.market, input.currency,
+    input.benchmarkAssetId, input.groupId, input.enabled ? 1 : 0, input.importanceWeight,
+  )));
+  const assets = await listAssets();
+  return { created: assets.length - (before?.count ?? 0), assets };
 }
 
 export async function updateAsset(id: number, input: AssetInput): Promise<Asset | null> {
