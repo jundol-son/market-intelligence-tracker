@@ -242,3 +242,32 @@ export const economicEventAssets = sqliteTable('economic_event_assets', {
   eventId: integer('event_id').notNull().references(() => economicEvents.id, { onDelete: 'cascade' }),
   assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
 }, (table) => [uniqueIndex('economic_event_assets_event_asset_unique').on(table.eventId, table.assetId)]);
+
+export const notificationSettings = sqliteTable('notification_settings', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  channel: text().notNull().unique(),
+  enabled: integer({ mode: 'boolean' }).notNull().default(false),
+  sendTime: text('send_time').notNull().default('08:00'),
+  timezone: text().notNull().default('Asia/Seoul'),
+  configJson: text('config_json').notNull().default('{}'),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  settingId: integer('setting_id').notNull().references(() => notificationSettings.id, { onDelete: 'cascade' }),
+  reportId: integer('report_id').notNull().references(() => reports.id, { onDelete: 'cascade' }),
+  status: text().notNull(),
+  errorMessage: text('error_message'),
+  sentAt: text('sent_at'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('notification_deliveries_setting_report_unique').on(table.settingId, table.reportId)]);
+
+export const jobRuns = sqliteTable('job_runs', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  jobName: text('job_name').notNull(),
+  startedAt: text('started_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  finishedAt: text('finished_at'),
+  status: text().notNull(),
+  errorMessage: text('error_message'),
+});

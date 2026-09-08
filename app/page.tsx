@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, CalendarDays, ChartNoAxesCombined, CheckCircle2,
+  AlertTriangle, ArrowDownRight, ArrowUpRight, Bell, CalendarDays, ChartNoAxesCombined, CheckCircle2,
   CircleGauge, Database, LayoutDashboard, Loader2, Newspaper, Pencil, Plus, Settings2,
   RefreshCw, Star, Trash2,
 } from 'lucide-react';
@@ -81,6 +81,21 @@ type EconomicEvent = EconomicEventInput & {
   id: number; createdAt: string; updatedAt: string;
   assets: Array<{ assetId: number; symbol: string; name: string }>;
 };
+type NotificationChannel = 'TELEGRAM' | 'EMAIL';
+type NotificationSetting = {
+  id: number; channel: NotificationChannel; enabled: boolean; sendTime: string;
+  timezone: string; updatedAt: string;
+};
+type NotificationJob = {
+  id: number; jobName: string; startedAt: string; finishedAt: string | null;
+  status: string; errorMessage: string | null;
+};
+type NotificationState = {
+  settings: NotificationSetting[];
+  configured: Record<NotificationChannel, boolean>;
+  jobs: NotificationJob[];
+  deliveries: Array<{ id: number; channel: NotificationChannel; reportDate: string; status: string; errorMessage: string | null; sentAt: string | null }>;
+};
 type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'admin';
 
 const sampleScores = [
@@ -105,6 +120,10 @@ const emptyEventForm: EconomicEventInput = {
   eventName: '', eventType: 'CPI', country: 'US', scheduledAt: '', previousValue: null,
   consensusValue: null, actualValue: null, expectedImpact: 80, status: 'SCHEDULED',
   sourceUrl: null, affectedAssetIds: [],
+};
+
+const emptyNotifications: NotificationState = {
+  settings: [], configured: { TELEGRAM: false, EMAIL: false }, jobs: [], deliveries: [],
 };
 
 function localDateTime(iso: string) {
@@ -134,6 +153,7 @@ export default function Home() {
   const [reportDetail, setReportDetail] = useState<ReportDetail | null>(null);
   const [news, setNews] = useState<NewsData>({ events: [], scores: [] });
   const [economicEvents, setEconomicEvents] = useState<EconomicEvent[]>([]);
+  const [notifications, setNotifications] = useState<NotificationState>(emptyNotifications);
   const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -156,6 +176,8 @@ export default function Home() {
   const [eventFormOpen, setEventFormOpen] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState<EconomicEvent | null>(null);
   const [savingEvent, setSavingEvent] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  const [sendingNotifications, setSendingNotifications] = useState(false);
 
   const loadAssets = useCallback(async () => {
     const data = await api<{ assets: Asset[] }>('/api/assets');
@@ -371,6 +393,45 @@ export default function Home() {
     }
   }
 
+  async function loadNotifications() {
+    try {
+      setNotifications(await api<NotificationState>('/api/admin/notifications', undefined, adminToken));
+      setMessage('알림 설정과 최근 작업 상태를 불러왔습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '알림 설정을 불러오지 못했습니다.');
+    }
+  }
+
+  async function saveNotifications() {
+    setSavingNotifications(true);
+    try {
+      const data = await api<NotificationState>('/api/admin/notifications', {
+        method: 'PUT', body: JSON.stringify({ settings: notifications.settings }),
+      }, adminToken);
+      setNotifications(data);
+      setMessage('알림 시각과 활성 상태를 저장했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '알림 설정을 저장하지 못했습니다.');
+    } finally {
+      setSavingNotifications(false);
+    }
+  }
+
+  async function sendNotificationsNow() {
+    setSendingNotifications(true);
+    try {
+      const data = await api<{ results: Array<{ channel: NotificationChannel; status: string; error?: string }> }>(
+        '/api/admin/notifications/send', { method: 'POST' }, adminToken,
+      );
+      await loadNotifications();
+      setMessage(data.results.length ? data.results.map((item) => `${item.channel}: ${item.status}${item.error ? ` (${item.error})` : ''}`).join(' · ') : '활성화된 알림 채널이 없습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '알림을 발송하지 못했습니다.');
+    } finally {
+      setSendingNotifications(false);
+    }
+  }
+
   function openEventForm(event?: EconomicEvent) {
     setEditingEvent(event ?? null);
     setEventForm(event ? {
@@ -419,6 +480,7 @@ export default function Home() {
     if (target === 'reports') void Promise.all([loadReports(), loadCalendar()]).catch((error: Error) => setMessage(error.message));
     if (target === 'news') void loadNews().catch((error: Error) => setMessage(error.message));
     if (target === 'calendar') void loadCalendar().catch((error: Error) => setMessage(error.message));
+    if (target === 'admin' && adminToken) void loadNotifications();
   }
 
   const nav = [
@@ -449,10 +511,10 @@ export default function Home() {
         <header className="flex min-h-20 items-center justify-between border-b bg-white/70 px-5 py-3 backdrop-blur-xl sm:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Market intelligence</p>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : '자산 관리'}</h1>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : '운영 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 7</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 8</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -476,7 +538,7 @@ export default function Home() {
                 ? <News news={news} loading={loadingNews} />
                 : view === 'calendar'
                   ? <EconomicCalendar events={economicEvents} loading={loadingCalendar} canManage={Boolean(adminToken)} onAdd={() => openEventForm()} onEdit={openEventForm} onDelete={setDeletingEvent} />
-                  : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} />}
+                  : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} notifications={notifications} savingNotifications={savingNotifications} sendingNotifications={sendingNotifications} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} onNotifications={setNotifications} onLoadNotifications={loadNotifications} onSaveNotifications={saveNotifications} onSendNotifications={sendNotificationsNow} />}
         </div>
       </section>
 
@@ -547,7 +609,7 @@ function Brand() {
 }
 
 function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 7</p></div>;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 8</p></div>;
 }
 
 function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; loading: boolean }) {
@@ -566,7 +628,7 @@ function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; marke
       <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
-    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Activity className="size-5" /></span><div><h2 className="font-semibold">Phase 7 Similarity Forecast</h2><p className="text-sm text-muted-foreground">과거 유사 환경의 다음 거래일 결과를 현재 점수·뉴스·예정 이벤트와 함께 해석합니다.</p></div></div></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Bell className="size-5" /></span><div><h2 className="font-semibold">Phase 8 Notifications</h2><p className="text-sm text-muted-foreground">Daily Report를 Telegram 요약과 Email 상세본으로 한 번씩 전달합니다.</p></div></div></section>
   </div>;
 }
 
@@ -610,10 +672,14 @@ function EconomicCalendar({ events, loading, canManage, onAdd, onEdit, onDelete 
   </div>;
 }
 
-function Admin({ assets, loading, token, collectingId, collectingNewsId, weights, savingWeights, generatingReport, onToken, onAdd, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; collectingNewsId: number | null; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void }) {
+function Admin({ assets, loading, token, collectingId, collectingNewsId, weights, savingWeights, generatingReport, notifications, savingNotifications, sendingNotifications, onToken, onAdd, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport, onNotifications, onLoadNotifications, onSaveNotifications, onSendNotifications }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; collectingNewsId: number | null; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; notifications: NotificationState; savingNotifications: boolean; sendingNotifications: boolean; onToken: (value: string) => void; onAdd: () => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void; onNotifications: (value: NotificationState) => void; onLoadNotifications: () => void; onSaveNotifications: () => void; onSendNotifications: () => void }) {
   return <div className="space-y-6">
     <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-token">관리자 토큰</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 API 요청 때만 사용합니다.</p><Input id="admin-token" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="ADMIN_TOKEN" className="max-w-md bg-white" /></div><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></section>
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
+    <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Telegram · Email 알림</h2><p className="mt-1 text-sm text-muted-foreground">매일 설정 시각 이후 최신 리포트를 채널별 한 번만 발송합니다.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onLoadNotifications} disabled={!token}>불러오기</Button><Button variant="outline" onClick={onSendNotifications} disabled={!token || sendingNotifications || !notifications.settings.some((item) => item.enabled)}>{sendingNotifications && <Loader2 className="animate-spin" />}지금 발송</Button><Button onClick={onSaveNotifications} disabled={!token || savingNotifications || notifications.settings.length === 0}>{savingNotifications && <Loader2 className="animate-spin" />}설정 저장</Button></div></div>
+      {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 토큰 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : 'Cloudflare EMAIL binding · EMAIL_FROM · EMAIL_TO'}</p></article>)}</div>}
+      {notifications.jobs.length > 0 && <div className="mt-5 overflow-x-auto"><p className="mb-2 text-sm font-semibold">최근 작업</p><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>시작</TableHead><TableHead>오류</TableHead></TableRow></TableHeader><TableBody>{notifications.jobs.slice(0, 5).map((job) => <TableRow key={job.id}><TableCell>{job.jobName}</TableCell><TableCell><span className={`rounded-full px-2 py-1 text-xs font-semibold ${job.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-700' : job.status === 'FAILED' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'}`}>{job.status}</span></TableCell><TableCell className="whitespace-nowrap text-muted-foreground">{new Date(job.startedAt).toLocaleString()}</TableCell><TableCell className="max-w-80 text-xs text-rose-600">{job.errorMessage ?? '—'}</TableCell></TableRow>)}</TableBody></Table></div>}
+    </section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>
       {loading ? <div className="grid min-h-48 place-items-center text-muted-foreground"><Loader2 className="size-5 animate-spin" /></div> : assets.length === 0 ? <div className="grid min-h-56 place-items-center p-8 text-center"><div><Database className="mx-auto size-8 text-slate-300" /><p className="mt-4 font-medium">등록된 자산이 없습니다.</p><p className="mt-1 text-sm text-muted-foreground">첫 번째 추적 자산을 등록하세요.</p></div></div> : <Table><TableHeader><TableRow><TableHead>자산</TableHead><TableHead>유형</TableHead><TableHead>시장 / 통화</TableHead><TableHead>중요도</TableHead><TableHead>상태</TableHead><TableHead className="text-right">관리</TableHead></TableRow></TableHeader><TableBody>{assets.map((asset) => <TableRow key={asset.id}><TableCell><p className="font-semibold">{asset.symbol}</p><p className="text-xs text-muted-foreground">{asset.name}</p></TableCell><TableCell>{asset.assetType}</TableCell><TableCell>{asset.market} · {asset.currency}</TableCell><TableCell>{asset.importanceWeight}</TableCell><TableCell><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold ${asset.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{asset.enabled && <CheckCircle2 className="size-3" />}{asset.enabled ? '활성' : '비활성'}</span></TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 가격 수집`} disabled={!token || collectingId !== null || collectingNewsId !== null} onClick={() => onCollect(asset)}>{collectingId === asset.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 뉴스 수집`} disabled={!token || collectingId !== null || collectingNewsId !== null} onClick={() => onCollectNews(asset)}>{collectingNewsId === asset.id ? <Loader2 className="animate-spin" /> : <Newspaper />}</Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 수정`} onClick={() => onEdit(asset)}><Pencil /></Button><Button variant="ghost" size="icon-sm" aria-label={`${asset.symbol} 삭제`} className="text-rose-600" onClick={() => onDelete(asset)}><Trash2 /></Button></div></TableCell></TableRow>)}</TableBody></Table>}
     </section>

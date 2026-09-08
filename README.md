@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 7 Similarity / Forecast입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 8 Notifications입니다.
 
 ## Phase 1
 
@@ -59,6 +59,14 @@
 
 Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트를 다시 열어도 결과가 바뀌지 않습니다. 비교 가능한 과거 데이터가 5일 미만인 자산은 예측을 만들지 않습니다.
 
+## Phase 8
+
+- Telegram 짧은 요약과 `/market`, `/global`, `/korea`, `/watch`, `/news`, `/events`, ticker 명령
+- Cloudflare Email binding 기반 상세 리포트
+- 채널별 활성 상태·발송 시각·시간대 Admin 설정
+- 15분 Cron 확인, 리포트별 중복 발송 방지, 최근 Job/발송 결과 기록
+- 비밀값 존재 여부만 Admin에 표시하며 실제 값은 Worker Secret으로만 보관
+
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
 ## 로컬 실행
@@ -88,7 +96,8 @@ npm run build
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
-| Telegram/메일 키 | Phase 8에서 결정 | Worker Secret |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `TELEGRAM_WEBHOOK_SECRET` | 사용자 설정 필요 | Worker Secret |
+| `EMAIL` binding / `EMAIL_FROM` / `EMAIL_TO` | 사용자 설정 필요 | Cloudflare Email Service + Worker 설정 |
 
 비밀값의 실제 내용은 README, 커밋, 이슈에 기록하지 않습니다. 변경 이력과 다음 작업은 로컬 작업공간 루트의 `CODEX_PROGRESS.md`에 누적합니다.
 
@@ -100,10 +109,12 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
 - Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
-- Worker secret: `ADMIN_TOKEN=<.admin-token의 값>`
+- Worker secrets: `ADMIN_TOKEN`, `ALPHA_VANTAGE_API_KEY`, Telegram 3종, Email 주소 2종
 
 스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 
 ## 무료 플랜 주의사항
 
 가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자산별 버튼을 필요할 때만 실행하고, MA120/200은 데이터가 충분히 누적될 때까지 `null`입니다. 시장별 심볼 지원과 데이터 이용 조건은 등록 전에 확인해야 합니다.
+
+알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. Cloudflare Email은 계정에서 검증한 수신 주소로 보내는 경우 Free plan에서도 무료이며, 발신 도메인과 수신 주소 확인이 먼저 필요합니다.
