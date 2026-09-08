@@ -61,7 +61,7 @@ export default defineConfig(async ({ command }) => {
         config: {
           ...localBindingConfig,
           vars: command === 'serve' ? {
-            ADMIN_TOKEN: 'local-dev-only',
+            ADMIN_PASSWORD: 'local-dev-only',
             ...(process.env.ALPHA_VANTAGE_API_KEY
               ? { ALPHA_VANTAGE_API_KEY: process.env.ALPHA_VANTAGE_API_KEY }
               : {}),

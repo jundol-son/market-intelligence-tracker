@@ -7,7 +7,7 @@
 - 반응형 Dashboard / Reports / Watchlist / Admin 화면
 - Cloudflare Worker API (`/api/health`, `/api/assets`, `/api/dashboard`)
 - D1 기반 Assets CRUD와 Drizzle migration
-- `ADMIN_TOKEN` 인증으로 쓰기 API 보호
+- Cloudflare Worker Secret `ADMIN_PASSWORD` 인증으로 쓰기 API 보호 (`ADMIN_TOKEN`은 이전 배포 호환용)
 
 ## Phase 2
 
@@ -47,7 +47,7 @@
 - `GET /api/calendar`, 인증된 `/api/admin/calendar`, Calendar 화면
 - Reports 화면의 다가오는 주요 이벤트 노출
 
-초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록합니다. 일정 변경은 Admin 토큰 입력 후 Calendar에서 수정할 수 있으며 추가 API 토큰은 필요하지 않습니다.
+초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록합니다. 일정 변경은 Admin 비밀번호 입력 후 Calendar에서 수정할 수 있으며 추가 API 토큰은 필요하지 않습니다.
 
 ## Phase 7
 
@@ -92,7 +92,8 @@ npm run build
 
 | 이름 | 현재 상태 | 저장/설정 위치 |
 |---|---|---|
-| `ADMIN_TOKEN` | 생성됨 | 로컬 `.admin-token`에만 보관(Git 제외), 운영에서는 Worker Secret |
+| `ADMIN_PASSWORD` | 사용자 설정 필요 | 운영 Worker Secret; 소스·D1·브라우저 저장소에 보관하지 않음 |
+| `ADMIN_TOKEN` | 호환 유지 | 기존 운영 인증이 끊기지 않도록 임시 fallback으로만 사용 |
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
@@ -109,7 +110,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
 - Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
-- Worker secrets: `ADMIN_TOKEN`, `ALPHA_VANTAGE_API_KEY`, Telegram 3종, Email 주소 2종
+- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, Telegram 3종, Email 주소 2종 (`ADMIN_TOKEN`은 이전 값 호환용)
 
 스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 
