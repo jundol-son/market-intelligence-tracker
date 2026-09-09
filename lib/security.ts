@@ -6,3 +6,7 @@ export function secureEqual(left: string, right: string) {
   }
   return difference === 0;
 }
+
+export function secureEqualAny(value: string, candidates: Array<string | undefined>) {
+  return candidates.some((candidate) => candidate !== undefined && secureEqual(value, candidate));
+}

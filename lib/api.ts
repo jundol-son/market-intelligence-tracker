@@ -1,15 +1,14 @@
 import { env } from 'cloudflare:workers';
-import { secureEqual } from '@/lib/security';
+import { secureEqualAny } from '@/lib/security';
 
 export function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export function requireAdmin(request: Request): Response | null {
-  const password = env.ADMIN_PASSWORD ?? env.ADMIN_TOKEN;
-  if (!password) return json({ error: 'ADMIN_PASSWORD가 설정되지 않았습니다.' }, 503);
+  if (!env.ADMIN_PASSWORD && !env.ADMIN_TOKEN) return json({ error: 'ADMIN_PASSWORD가 설정되지 않았습니다.' }, 503);
   const provided = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
-  if (!secureEqual(provided, password)) {
+  if (!secureEqualAny(provided, [env.ADMIN_PASSWORD, env.ADMIN_TOKEN])) {
     return json({ error: '관리자 인증이 필요합니다.' }, 401);
   }
   return null;
