@@ -5,6 +5,7 @@ import {
   parseAlphaVantageCryptoDaily, parseAlphaVantageDaily, parseAlphaVantageFxDaily,
   parseAlphaVantageScalar, calculateTreasurySpread, type PriceBar,
 } from './market-data.ts';
+import { isProviderDailyLimitError, PROVIDER_DAILY_LIMIT_MESSAGE } from './provider-error.ts';
 
 const prices: PriceBar[] = Array.from({ length: 220 }, (_, index) => ({
   date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
@@ -49,4 +50,6 @@ assert.throws(
   () => parseAlphaVantageDaily({ Note: 'API key SECRET rate limited' }),
   (error: unknown) => error instanceof Error && !error.message.includes('SECRET') && /호출 한도/.test(error.message),
 );
+assert.equal(isProviderDailyLimitError(new Error(PROVIDER_DAILY_LIMIT_MESSAGE)), true);
+assert.equal(isProviderDailyLimitError(new Error('데이터 공급자가 요청을 거부했습니다.')), false);
 console.log('market data indicators: ok');

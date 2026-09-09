@@ -6,6 +6,7 @@ import { evaluateForecastResults } from '@/db/reports';
 import { recalculateScores } from '@/db/scoring';
 import { apiError, json, requireAdmin } from '@/lib/api';
 import { isCollectable } from '@/lib/catalog';
+import { isProviderDailyLimitError } from '@/lib/provider-error';
 
 export async function POST(request: Request) {
   const denied = requireAdmin(request);
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
         const message = error instanceof Error ? error.message : '수집 실패';
         collections.push({ called: true, assetId: asset.id, symbol: asset.symbol, prices: 0, latestDate: null,
           error: message });
-        if (/호출 한도|공급자 요청 실패/.test(message) || failures >= 2) break;
+        if (isProviderDailyLimitError(error) || failures >= 2) break;
       }
     }
     const successful = collections.filter((item) => item.called && 'prices' in item && item.prices > 0).length;

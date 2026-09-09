@@ -25,7 +25,7 @@ import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/econ
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 
 type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
-type ProviderQuota = { limit: number; used: number; remaining: number };
+type ProviderQuota = { limit: number; used: number; remaining: number; providerLimited: boolean };
 type MarketSnapshot = {
   id: number; symbol: string; name: string; date: string | null; price: number | null;
   return1d: number | null; ma20: number | null; ma60: number | null;
@@ -344,7 +344,9 @@ export default function Home() {
       await loadDashboard();
       setMessage(data.collection.called
         ? `${asset.symbol} 일봉 ${data.collection.prices}개를 수집했습니다. 최신 ${data.collection.latestDate ?? '—'} · 잔여 ${data.quota.remaining}/${data.quota.limit}회`
-        : data.collection.reason === 'QUOTA_EXHAUSTED'
+        : data.collection.reason === 'PROVIDER_LIMITED'
+          ? 'Alpha Vantage가 실제 일일 한도 초과를 반환해 24시간 동안 추가 호출을 차단했습니다.'
+          : data.collection.reason === 'QUOTA_EXHAUSTED'
           ? `최근 24시간 무료 호출 ${data.quota.limit}회를 모두 사용했습니다.`
           : `${asset.symbol}은 최근 수집되어 API를 호출하지 않았습니다. 잔여 ${data.quota.remaining}/${data.quota.limit}회`);
     } catch (error) {
@@ -378,7 +380,9 @@ export default function Home() {
         '/api/admin/collect', { method: 'POST', body: JSON.stringify({ maxCalls: 5 }) }, adminToken,
       );
       await Promise.all([loadAssets(), loadDashboard()]);
-      setMessage(`우선순위 수집 ${data.batch.successful}/${data.batch.calls}개 성공 · 최근 24시간 잔여 ${data.quota.remaining}/${data.quota.limit}회`);
+      setMessage(data.quota.providerLimited
+        ? `우선순위 수집 ${data.batch.successful}/${data.batch.calls}개 성공 · 공급자가 실제 일일 한도 초과를 반환해 24시간 추가 호출을 차단했습니다.`
+        : `우선순위 수집 ${data.batch.successful}/${data.batch.calls}개 성공 · 앱 기록 기준 최근 24시간 잔여 ${data.quota.remaining}/${data.quota.limit}회`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '일괄 수집하지 못했습니다.');
     } finally {
@@ -396,7 +400,9 @@ export default function Home() {
       await Promise.all([loadNews(), loadDashboard()]);
       setMessage(data.collection.called
         ? `${asset.symbol} 뉴스 ${data.collection.fetched}건 확인 · 신규 Event ${data.collection.created}건 · News Score ${data.collection.score?.toFixed(1)} · 잔여 ${data.quota.remaining}/${data.quota.limit}회`
-        : data.collection.reason === 'QUOTA_EXHAUSTED'
+        : data.collection.reason === 'PROVIDER_LIMITED'
+          ? 'Alpha Vantage가 실제 일일 한도 초과를 반환해 24시간 동안 추가 호출을 차단했습니다.'
+          : data.collection.reason === 'QUOTA_EXHAUSTED'
           ? `최근 24시간 무료 호출 ${data.quota.limit}회를 모두 사용했습니다.`
           : `${asset.symbol} 뉴스는 오늘 이미 수집되어 API를 호출하지 않았습니다. 잔여 ${data.quota.remaining}/${data.quota.limit}회`);
     } catch (error) {
@@ -753,7 +759,7 @@ function EconomicCalendar({ events, loading, canManage, onAdd, onEdit, onDelete 
 function Admin({ assets, loading, token, collectingId, collectingNewsId, bootstrapping, collectingBatch, weights, savingWeights, generatingReport, notifications, savingNotifications, sendingNotifications, onToken, onAdd, onBootstrap, onCollectBatch, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport, onNotifications, onLoadNotifications, onSaveNotifications, onSendNotifications }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; collectingNewsId: number | null; bootstrapping: boolean; collectingBatch: boolean; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; notifications: NotificationState; savingNotifications: boolean; sendingNotifications: boolean; onToken: (value: string) => void; onAdd: () => void; onBootstrap: () => void; onCollectBatch: () => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void; onNotifications: (value: NotificationState) => void; onLoadNotifications: () => void; onSaveNotifications: () => void; onSendNotifications: () => void }) {
   return <div className="space-y-6">
     <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-password">관리자 비밀번호</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 HTTPS API 요청 때만 사용합니다.</p><Input id="admin-password" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="설정한 비밀번호" className="max-w-md bg-white" /></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onBootstrap} disabled={!token || bootstrapping || collectingBatch}>{bootstrapping && <Loader2 className="animate-spin" />}기본 지표 등록</Button><Button variant="outline" onClick={onCollectBatch} disabled={!token || collectingBatch || bootstrapping}>{collectingBatch ? <Loader2 className="animate-spin" /> : <RefreshCw />}우선순위 5개 수집</Button><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></div></section>
-    <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-sm leading-6 text-blue-950"><strong>무료 호출 최적화</strong><p className="mt-1">기본 지표 등록은 API를 사용하지 않습니다. 일괄 수집은 미수집·오래된 자산부터 최대 5회만 호출하고, 같은 자산은 18시간 동안 다시 호출하지 않습니다. 가격과 뉴스는 Alpha Vantage 최근 24시간 25회 예산을 함께 사용합니다.</p></section>
+    <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-sm leading-6 text-blue-950"><strong>무료 호출 최적화</strong><p className="mt-1">기본 지표 등록은 API를 사용하지 않습니다. 일괄 수집은 미수집·오래된 자산부터 최대 5회만 호출하고, 같은 자산은 18시간 동안 다시 호출하지 않습니다. 화면의 잔여 횟수는 이 앱의 최근 24시간 기록이며 같은 API 키를 다른 곳에서 쓴 내역은 포함하지 않습니다. 공급자가 실제 한도 초과를 반환하면 24시간 동안 추가 호출을 차단합니다.</p></section>
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Telegram · Email 알림</h2><p className="mt-1 text-sm text-muted-foreground">매일 설정 시각 이후 최신 리포트를 채널별 한 번만 발송합니다.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onLoadNotifications} disabled={!token}>불러오기</Button><Button variant="outline" onClick={onSendNotifications} disabled={!token || sendingNotifications || !notifications.settings.some((item) => item.enabled)}>{sendingNotifications && <Loader2 className="animate-spin" />}지금 발송</Button><Button onClick={onSaveNotifications} disabled={!token || savingNotifications || notifications.settings.length === 0}>{savingNotifications && <Loader2 className="animate-spin" />}설정 저장</Button></div></div>
       {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : 'Cloudflare EMAIL binding · EMAIL_FROM · EMAIL_TO'}</p></article>)}</div>}
