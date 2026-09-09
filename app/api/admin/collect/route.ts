@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { listAssetsForCollection } from '@/db/assets';
-import { collectAssetPrice, refreshTreasurySpread } from '@/db/collection';
+import { canCollectWith, collectAssetPrice, refreshTreasurySpread } from '@/db/collection';
 import { providerUsage } from '@/db/provider-usage';
 import { evaluateForecastResults } from '@/db/reports';
 import { recalculateScores } from '@/db/scoring';
@@ -12,14 +12,21 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   try {
-    if (!env.ALPHA_VANTAGE_API_KEY) return json({ error: 'ALPHA_VANTAGE_API_KEY가 설정되지 않았습니다.' }, 503);
+    const credentials = {
+      alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY,
+      kisAppKey: env.KIS_APP_KEY,
+      kisAppSecret: env.KIS_APP_SECRET,
+    };
+    if (!credentials.alphaVantageApiKey && !(credentials.kisAppKey && credentials.kisAppSecret)) {
+      return json({ error: '가격 공급자 API 키가 설정되지 않았습니다.' }, 503);
+    }
     const raw = await request.json().catch(() => ({})) as { maxCalls?: unknown };
     const requested = Number(raw.maxCalls ?? 5);
     if (!Number.isInteger(requested) || requested < 1 || requested > 10) {
       return json({ error: '한 번에 수집할 호출 수는 1~10이어야 합니다.' }, 400);
     }
     const candidates = (await listAssetsForCollection())
-      .filter((asset) => asset.enabled && isCollectable(asset.symbol));
+      .filter((asset) => asset.enabled && isCollectable(asset.symbol) && canCollectWith(asset.symbol, credentials));
     const collections = [] as Array<Awaited<ReturnType<typeof collectAssetPrice>> | {
       called: true; assetId: number; symbol: string; prices: 0; latestDate: null; error: string;
     }>;
@@ -28,7 +35,7 @@ export async function POST(request: Request) {
     for (const asset of candidates) {
       if (calls >= requested) break;
       try {
-        const result = await collectAssetPrice(asset, env.ALPHA_VANTAGE_API_KEY);
+        const result = await collectAssetPrice(asset, credentials);
         collections.push(result);
         if (result.called) calls += 1;
       } catch (error) {

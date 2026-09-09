@@ -17,18 +17,21 @@ export async function providerUsage() {
 
 export async function reserveProviderCall(jobName: string, cooldownHours = 18) {
   const db = getDb();
-  const usage = await providerUsage();
-  if (usage.remaining === 0) {
-    return { reserved: false as const, reason: usage.providerLimited ? 'PROVIDER_LIMITED' as const : 'QUOTA_EXHAUSTED' as const };
+  const isAlpha = jobName.startsWith('ALPHA_API:');
+  if (isAlpha) {
+    const usage = await providerUsage();
+    if (usage.remaining === 0) {
+      return { reserved: false as const, reason: usage.providerLimited ? 'PROVIDER_LIMITED' as const : 'QUOTA_EXHAUSTED' as const };
+    }
   }
   const job = await db.prepare(`INSERT INTO job_runs (job_name, status)
     SELECT ?, 'RUNNING'
-    WHERE (SELECT COUNT(*) FROM job_runs
-      WHERE job_name LIKE 'ALPHA_API:%' AND datetime(started_at)>=datetime('now', '-24 hours')) < ?
+    WHERE (? = 0 OR (SELECT COUNT(*) FROM job_runs
+      WHERE job_name LIKE 'ALPHA_API:%' AND datetime(started_at)>=datetime('now', '-24 hours')) < ?)
     AND NOT EXISTS (SELECT 1 FROM job_runs WHERE job_name=?
       AND status IN ('RUNNING', 'SUCCESS')
       AND datetime(started_at)>=datetime('now', '-' || ? || ' hours'))
-    RETURNING id`).bind(jobName, ALPHA_DAILY_LIMIT, jobName, cooldownHours).first<{ id: number }>();
+    RETURNING id`).bind(jobName, isAlpha ? 1 : 0, ALPHA_DAILY_LIMIT, jobName, cooldownHours).first<{ id: number }>();
   if (job) return { reserved: true as const, id: job.id };
   const duplicate = await db.prepare(`SELECT 1 AS found FROM job_runs WHERE job_name=?
     AND status IN ('RUNNING', 'SUCCESS')

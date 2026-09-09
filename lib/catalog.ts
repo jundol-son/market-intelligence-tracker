@@ -8,23 +8,30 @@ export type AlphaSource =
   | { kind: 'DERIVED' }
   | { kind: 'UNAVAILABLE' };
 
-type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string };
+export type KisSource =
+  | { kind: 'DOMESTIC'; code: string }
+  | { kind: 'INDEX'; code: string };
+
+type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string; kisSource?: KisSource };
 
 const asset = (
   symbol: string, name: string, assetType: AssetInput['assetType'], market: string,
   currency: string, importanceWeight: number, source: AlphaSource, enabled = true,
-  newsTicker?: string,
+  newsTicker?: string, kisSource?: KisSource,
 ): CatalogAsset => ({
   symbol, name, assetType, market, currency, benchmarkAssetId: null, groupId: null,
-  enabled, importanceWeight, source, newsTicker,
+  enabled, importanceWeight, source, newsTicker, kisSource,
 });
 
 export const DEFAULT_ASSETS: readonly CatalogAsset[] = [
   asset('SP500', 'S&P 500 (SPY proxy)', 'INDEX', 'GLOBAL', 'USD', 20, { kind: 'STOCK', symbol: 'SPY' }, true, 'SPY'),
   asset('NASDAQ100', 'Nasdaq 100 (QQQ proxy)', 'INDEX', 'GLOBAL', 'USD', 15, { kind: 'STOCK', symbol: 'QQQ' }, true, 'QQQ'),
   asset('SOX', 'Philadelphia Semiconductor (SOXX proxy)', 'INDEX', 'GLOBAL', 'USD', 10, { kind: 'STOCK', symbol: 'SOXX' }, true, 'SOXX'),
-  asset('KOSPI', 'Korea equities (EWY proxy)', 'INDEX', 'KOSPI', 'USD', 20, { kind: 'STOCK', symbol: 'EWY' }, true, 'EWY'),
-  asset('KOSDAQ', 'KOSDAQ (source connection required)', 'INDEX', 'KOSDAQ', 'KRW', 10, { kind: 'UNAVAILABLE' }, false),
+  asset('KOSPI', 'KOSPI', 'INDEX', 'KOSPI', 'KRW', 20, { kind: 'UNAVAILABLE' }, true, undefined, { kind: 'INDEX', code: '0001' }),
+  asset('KOSDAQ', 'KOSDAQ', 'INDEX', 'KOSDAQ', 'KRW', 10, { kind: 'UNAVAILABLE' }, true, undefined, { kind: 'INDEX', code: '1001' }),
+  asset('005930', '삼성전자', 'STOCK', 'KOSPI', 'KRW', 12, { kind: 'UNAVAILABLE' }, true, undefined, { kind: 'DOMESTIC', code: '005930' }),
+  asset('000660', 'SK하이닉스', 'STOCK', 'KOSPI', 'KRW', 10, { kind: 'UNAVAILABLE' }, true, undefined, { kind: 'DOMESTIC', code: '000660' }),
+  asset('091160', 'KODEX 반도체', 'ETF', 'KOSPI', 'KRW', 8, { kind: 'UNAVAILABLE' }, true, undefined, { kind: 'DOMESTIC', code: '091160' }),
   asset('USDKRW', 'USD/KRW', 'FX', 'FX', 'KRW', 8, { kind: 'FX', from: 'USD', to: 'KRW' }, true, 'FOREX:USD'),
   asset('USDJPY', 'USD/JPY', 'FX', 'FX', 'JPY', 5, { kind: 'FX', from: 'USD', to: 'JPY' }, true, 'FOREX:USD'),
   asset('DXY', 'US Dollar Index (UUP proxy)', 'FX', 'GLOBAL', 'USD', 8, { kind: 'STOCK', symbol: 'UUP' }, true, 'UUP'),
@@ -47,6 +54,9 @@ const catalog = new Map(DEFAULT_ASSETS.map((item) => [item.symbol, item]));
 export const alphaSourceFor = (symbol: string): AlphaSource =>
   catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
 
+export const kisSourceFor = (symbol: string): KisSource | null =>
+  catalog.get(symbol.toUpperCase())?.kisSource ?? null;
+
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());
   return item ? item.newsTicker ?? null : symbol;
@@ -54,5 +64,5 @@ export const newsTickerFor = (symbol: string): string | null => {
 
 export const isCollectable = (symbol: string): boolean => {
   const kind = alphaSourceFor(symbol).kind;
-  return kind !== 'DERIVED' && kind !== 'UNAVAILABLE';
+  return Boolean(kisSourceFor(symbol)) || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
 };

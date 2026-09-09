@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { calculateIndicators } from './indicators.ts';
-import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, newsTickerFor } from './catalog.ts';
+import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, kisSourceFor, newsTickerFor } from './catalog.ts';
 import {
   parseAlphaVantageCryptoDaily, parseAlphaVantageDaily, parseAlphaVantageFxDaily,
-  parseAlphaVantageScalar, calculateTreasurySpread, type PriceBar,
+  parseAlphaVantageScalar, calculateTreasurySpread, parseKisPriceBars, type PriceBar,
 } from './market-data.ts';
 import { isProviderDailyLimitError, PROVIDER_DAILY_LIMIT_MESSAGE } from './provider-error.ts';
 
@@ -37,11 +37,23 @@ assert.equal(parseAlphaVantageCryptoDaily({
 assert.deepEqual(parseAlphaVantageScalar({ data: [
   { date: '2026-09-04', value: '4.25' }, { date: '2026-09-05', value: '.' },
 ] })[0], { date: '2026-09-04', open: 4.25, high: 4.25, low: 4.25, close: 4.25, volume: 0 });
-assert.equal(DEFAULT_ASSETS.length, 20);
+assert.equal(DEFAULT_ASSETS.length, 23);
 assert.deepEqual(alphaSourceFor('USDKRW'), { kind: 'FX', from: 'USD', to: 'KRW' });
+assert.deepEqual(kisSourceFor('KOSPI'), { kind: 'INDEX', code: '0001' });
+assert.deepEqual(kisSourceFor('005930'), { kind: 'DOMESTIC', code: '005930' });
+assert.equal(isCollectable('KOSDAQ'), true);
 assert.equal(isCollectable('US10Y2Y'), false);
 assert.equal(newsTickerFor('BTC'), 'CRYPTO:BTC');
 assert.equal(newsTickerFor('KOSDAQ'), null);
+assert.equal(newsTickerFor('005930'), null);
+assert.equal(parseKisPriceBars({ rt_cd: '0', output2: [{
+  stck_bsop_date: '20260908', stck_oprc: '70000', stck_hgpr: '71000', stck_lwpr: '69000',
+  stck_clpr: '70500', acml_vol: '123456',
+}] }, 'DOMESTIC')[0].close, 70500);
+assert.equal(parseKisPriceBars({ rt_cd: '0', output2: [{
+  stck_bsop_date: '20260908', bstp_nmix_oprc: '3000', bstp_nmix_hgpr: '3050',
+  bstp_nmix_lwpr: '2980', bstp_nmix_prpr: '3030', acml_vol: '789',
+}] }, 'INDEX')[0].close, 3030);
 assert.ok(Math.abs(calculateTreasurySpread(
   [{ date: '2026-09-05', open: 4, high: 4, low: 4, close: 4, volume: 0 }],
   [{ date: '2026-09-05', open: 3.8, high: 3.8, low: 3.8, close: 3.8, volume: 0 }],

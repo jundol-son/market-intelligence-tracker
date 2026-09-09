@@ -4,6 +4,8 @@ declare namespace Cloudflare {
     ADMIN_PASSWORD?: string;
     ADMIN_TOKEN?: string;
     ALPHA_VANTAGE_API_KEY?: string;
+    KIS_APP_KEY?: string;
+    KIS_APP_SECRET?: string;
     TELEGRAM_BOT_TOKEN?: string;
     TELEGRAM_CHAT_ID?: string;
     TELEGRAM_WEBHOOK_SECRET?: string;

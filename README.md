@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 10 Data Coverage입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 11 KIS Read-only Data입니다.
 
 ## Phase 1
 
@@ -11,7 +11,7 @@
 
 ## Phase 2
 
-- Alpha Vantage 일봉 공급자와 수동 자산별 수집 API
+- KIS 한국 지수·주식·ETF 및 Alpha Vantage 글로벌 일봉 공급자와 수동 자산별 수집 API
 - D1 `asset_prices`, `asset_indicators` 저장 및 날짜 중복 방지
 - MA5/20/60/120/200, 괴리율, 기울기, 수익률, RSI14, ATR14, 거래량 비율, 벤치마크 상대강도 계산
 - `GET /api/assets/:id/history` 및 Dashboard 실제 데이터 표시
@@ -78,14 +78,21 @@ Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로
 
 ## Phase 10
 
-- `POST /api/admin/bootstrap`: 기준 명세의 기본 20개 지표를 API 호출 없이 중복 안전하게 등록
+- `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 23개를 API 호출 없이 중복 안전하게 등록
 - `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
 - Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 24시간 중복 호출 방지
-- 주식/ETF, FX, Crypto, Treasury Yield, WTI, Brent, Gold 응답 형식 지원
+- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Crypto, Treasury Yield, WTI, Brent, Gold 응답 형식 지원
 - US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
 - VIX·DXY·US 2Y·US 10Y의 추세/모멘텀은 상승을 위험 증가 방향으로 반전해 점수 계산
 
-프록시는 자산 이름에 원본 심볼을 표시합니다. KOSDAQ·한국 외국인 수급·시장폭은 신뢰할 무료 소스를 연결할 때까지 비활성 등록됩니다.
+KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. 한국 외국인 수급·시장폭은 응답 스키마를 실호출로 검증할 때까지 비활성 등록됩니다.
+
+## Phase 11
+
+- KIS OAuth와 국내주식·ETF·업종지수 일봉 조회 전용 연결
+- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 실제 원화 시세
+- 한국 자산은 최대 260개 일봉을 채워 MA200 계산 기반 확보
+- 주문·정정·취소·잔고·계좌 API와 계좌번호를 완전히 제외
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
@@ -115,6 +122,7 @@ npm run build
 | `ADMIN_PASSWORD` | 사용자 설정 필요 | 운영 Worker Secret; 소스·D1·브라우저 저장소에 보관하지 않음 |
 | `ADMIN_TOKEN` | 호환 유지 | 기존 운영 인증이 끊기지 않도록 임시 fallback으로만 사용 |
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
+| `KIS_APP_KEY` / `KIS_APP_SECRET` | 사용자 설정 완료 | 운영 Worker Secret; 조회 전용 시세 인증에만 사용 |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `TELEGRAM_WEBHOOK_SECRET` | 사용자 설정 필요 | Worker Secret |
@@ -130,12 +138,14 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
 - Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
-- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, Telegram 3종, Email 주소 2종 (`ADMIN_TOKEN`은 이전 값 호환용)
+- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, `KIS_APP_KEY`, `KIS_APP_SECRET`, Telegram 3종, Email 주소 2종 (`ADMIN_TOKEN`은 이전 값 호환용)
 
 스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 
 ## 무료 플랜 주의사항
 
 가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 화면의 잔여 횟수는 이 앱의 기록만 반영하므로 같은 키를 로컬·다른 앱에서 쓴 호출은 포함하지 않습니다. 공급자가 실제 일일 한도 초과를 반환하면 해당 기록을 감지해 24시간 추가 호출을 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
+
+KIS는 KOSPI·KOSDAQ·005930·000660·091160의 일봉 조회에만 사용합니다. 한 종목당 최대 3페이지에서 최신 260개를 저장하고 18시간 중복 호출을 막습니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
 
 알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. Cloudflare Email은 계정에서 검증한 수신 주소로 보내는 경우 Free plan에서도 무료이며, 발신 도메인과 수신 주소 확인이 먼저 필요합니다.

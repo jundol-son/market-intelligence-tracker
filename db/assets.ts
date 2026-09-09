@@ -23,7 +23,7 @@ export async function listAssetsForCollection(): Promise<Array<Asset & { lastAtt
     benchmark_asset_id AS benchmarkAssetId, group_id AS groupId, enabled,
     importance_weight AS importanceWeight, created_at AS createdAt, updated_at AS updatedAt,
     (SELECT MAX(j.started_at) FROM job_runs j
-      WHERE j.job_name='ALPHA_API:PRICE:' || assets.symbol) AS lastAttemptAt
+      WHERE j.job_name IN ('ALPHA_API:PRICE:' || assets.symbol, 'KIS_API:PRICE:' || assets.symbol)) AS lastAttemptAt
     FROM assets ORDER BY lastAttemptAt IS NOT NULL, datetime(lastAttemptAt), importance_weight DESC, symbol`)
     .all<Asset & { lastAttemptAt: string | null }>();
   return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));
@@ -57,6 +57,9 @@ export async function seedDefaultAssets() {
     input.symbol, input.name, input.assetType, input.market, input.currency,
     input.benchmarkAssetId, input.groupId, input.enabled ? 1 : 0, input.importanceWeight,
   )));
+  await db.prepare(`UPDATE assets SET name=CASE symbol WHEN 'KOSPI' THEN 'KOSPI' ELSE 'KOSDAQ' END,
+    market=symbol, currency='KRW', enabled=1, updated_at=CURRENT_TIMESTAMP
+    WHERE symbol IN ('KOSPI', 'KOSDAQ')`).run();
   const assets = await listAssets();
   return { created: assets.length - (before?.count ?? 0), assets };
 }
