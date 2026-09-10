@@ -220,8 +220,9 @@ export class KisReadOnlyProvider implements MarketDataProvider {
         },
         signal: AbortSignal.timeout(15_000),
       });
-      if (!response.ok) throw new Error(`KIS 시세 조회 실패 (${response.status})`);
-      const rows = parseKisPriceBars(await response.json(), this.source.kind);
+      const body = await response.json().catch(() => null) as KisBody | null;
+      if (!response.ok) throw new Error(`KIS 시세 조회 실패 (${response.status}): ${body?.msg1 ?? '응답 오류'}`);
+      const rows = parseKisPriceBars(body, this.source.kind);
       rows.forEach((row) => prices.set(row.date, row));
       const oldest = rows[0]?.date;
       if (rows.length < 100 || !oldest || oldest <= from.toISOString().slice(0, 10)) break;
