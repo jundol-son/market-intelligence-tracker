@@ -100,6 +100,7 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - 현재가·등락률·Score·MA20/60/120/200·RSI·상대강도·News Score 표시
 - 종목 선택 시 최근 60거래일 라인 차트와 최근 10개 일봉 상세 표시
 - 기존 Dashboard 및 History API를 재사용하며 별도 의존성·DB migration 없음
+- KIS 자산 5개를 한 요청에서 수집해 OAuth 토큰 발급을 한 번만 수행하는 Admin 전용 일괄 수집
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 

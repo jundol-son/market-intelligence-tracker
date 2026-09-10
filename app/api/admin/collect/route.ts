@@ -5,7 +5,7 @@ import { providerUsage } from '@/db/provider-usage';
 import { evaluateForecastResults } from '@/db/reports';
 import { recalculateScores } from '@/db/scoring';
 import { apiError, json, requireAdmin } from '@/lib/api';
-import { isCollectable } from '@/lib/catalog';
+import { isCollectable, kisSourceFor } from '@/lib/catalog';
 import { isProviderDailyLimitError } from '@/lib/provider-error';
 
 export async function POST(request: Request) {
@@ -20,13 +20,16 @@ export async function POST(request: Request) {
     if (!credentials.alphaVantageApiKey && !(credentials.kisAppKey && credentials.kisAppSecret)) {
       return json({ error: '가격 공급자 API 키가 설정되지 않았습니다.' }, 503);
     }
-    const raw = await request.json().catch(() => ({})) as { maxCalls?: unknown };
+    const raw = await request.json().catch(() => ({})) as { maxCalls?: unknown; provider?: unknown };
     const requested = Number(raw.maxCalls ?? 5);
     if (!Number.isInteger(requested) || requested < 1 || requested > 10) {
       return json({ error: '한 번에 수집할 호출 수는 1~10이어야 합니다.' }, 400);
     }
+    const provider = raw.provider ?? 'ALL';
+    if (provider !== 'ALL' && provider !== 'KIS') return json({ error: '수집 공급자가 올바르지 않습니다.' }, 400);
     const candidates = (await listAssetsForCollection())
-      .filter((asset) => asset.enabled && isCollectable(asset.symbol) && canCollectWith(asset.symbol, credentials));
+      .filter((asset) => asset.enabled && isCollectable(asset.symbol) && canCollectWith(asset.symbol, credentials)
+        && (provider !== 'KIS' || kisSourceFor(asset.symbol)));
     const collections = [] as Array<Awaited<ReturnType<typeof collectAssetPrice>> | {
       called: true; assetId: number; symbol: string; prices: 0; latestDate: null; error: string;
     }>;
