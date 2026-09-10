@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 11 KIS Read-only Data입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 12 Watchlist입니다.
 
 ## Phase 1
 
@@ -93,6 +93,13 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 실제 원화 시세
 - 한국 자산은 최대 260개 일봉을 채워 MA200 계산 기반 확보
 - 주문·정정·취소·잔고·계좌 API와 계좌번호를 완전히 제외
+
+## Phase 12
+
+- 기준 명세의 Watchlist를 실제 활성 주식·ETF와 주요 ETF 프록시로 구성
+- 현재가·등락률·Score·MA20/60/120/200·RSI·상대강도·News Score 표시
+- 종목 선택 시 최근 60거래일 라인 차트와 최근 10개 일봉 상세 표시
+- 기존 Dashboard 및 History API를 재사용하며 별도 의존성·DB migration 없음
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
