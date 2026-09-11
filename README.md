@@ -1,6 +1,6 @@
 # Market Intelligence Tracker
 
-글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 12 Watchlist입니다.
+글로벌·한국 시장 환경과 추적 자산을 한 화면에서 관리하는 개인용 시장 정보 대시보드입니다. 현재 구현 범위는 Phase 13 Daily Decision Desk입니다.
 
 ## Phase 1
 
@@ -62,7 +62,7 @@ Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트
 ## Phase 8
 
 - Telegram 짧은 요약과 `/market`, `/global`, `/korea`, `/watch`, `/news`, `/events`, ticker 명령
-- Cloudflare Email binding 기반 상세 리포트
+- 무료 Resend HTTP API 또는 Cloudflare Email binding 기반 상세 리포트
 - 채널별 활성 상태·발송 시각·시간대 Admin 설정
 - 15분 Cron 확인, 리포트별 중복 발송 방지, 최근 Job/발송 결과 기록
 - 비밀값 존재 여부만 Admin에 표시하며 실제 값은 Worker Secret으로만 보관
@@ -102,6 +102,16 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - 기존 Dashboard 및 History API를 재사용하며 별도 의존성·DB migration 없음
 - KIS 자산 5개를 한 요청에서 수집해 OAuth 토큰 발급을 한 번만 수행하는 Admin 전용 일괄 수집
 
+## Phase 13
+
+- KIS 조회 전용 API로 KOSPI·KOSDAQ 외국인/기관/개인 수급과 상승·하락 종목수 저장
+- 국내 주식·ETF의 외국인/기관/개인/프로그램 수급, PER/PBR, 외국인 소진율, 52주 위치, 위험 상태 저장
+- 숫자 나열 대신 오늘의 판단·근거·주의점·다음 확인사항을 첫 화면과 Email에 표시
+- 평일 16:10 KST 이후 KIS 일봉·판단 데이터·점수·Daily Report를 하루 한 번 자동 갱신
+- 기존 MA·RSI 외 5/20/60일 수익률, ATR%, 거래량 비율, MA20/60 괴리도를 Dashboard/Watchlist에 노출
+- 6자리 국내 종목코드는 별도 소스 코드 수정 없이 KIS 조회 대상으로 인식
+- 주문·정정·취소·잔고·계좌·hashkey API는 허용 목록 밖으로 유지
+
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
 ## 로컬 실행
@@ -134,7 +144,8 @@ npm run build
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `TELEGRAM_WEBHOOK_SECRET` | 사용자 설정 필요 | Worker Secret |
-| `EMAIL` binding / `EMAIL_FROM` / `EMAIL_TO` | 사용자 설정 필요 | Cloudflare Email Service + Worker 설정 |
+| `RESEND_API_KEY` / `EMAIL_TO` | 사용자 설정 필요 | Resend 무료 Sending-only API Key + Worker Secret |
+| `EMAIL_FROM` | 선택 | 미설정 시 Resend 테스트 발신자 사용; 자체 도메인 연결 시 설정 |
 
 비밀값의 실제 내용은 README, 커밋, 이슈에 기록하지 않습니다. 변경 이력과 다음 작업은 로컬 작업공간 루트의 `CODEX_PROGRESS.md`에 누적합니다.
 
@@ -146,7 +157,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
 - Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
-- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, `KIS_APP_KEY`, `KIS_APP_SECRET`, Telegram 3종, Email 주소 2종 (`ADMIN_TOKEN`은 이전 값 호환용)
+- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, `KIS_APP_KEY`, `KIS_APP_SECRET`, Telegram 3종, `RESEND_API_KEY`, `EMAIL_TO`, 선택 `EMAIL_FROM` (`ADMIN_TOKEN`은 이전 값 호환용)
 
 스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 

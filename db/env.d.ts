@@ -10,6 +10,7 @@ declare namespace Cloudflare {
     TELEGRAM_CHAT_ID?: string;
     TELEGRAM_WEBHOOK_SECRET?: string;
     EMAIL?: SendEmail;
+    RESEND_API_KEY?: string;
     EMAIL_FROM?: string;
     EMAIL_TO?: string;
     PUBLIC_APP_URL?: string;

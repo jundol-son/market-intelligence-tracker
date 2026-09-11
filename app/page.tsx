@@ -29,8 +29,10 @@ type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
 type ProviderQuota = { limit: number; used: number; remaining: number; providerLimited: boolean };
 type MarketSnapshot = {
   id: number; symbol: string; name: string; date: string | null; price: number | null;
-  return1d: number | null; ma20: number | null; ma60: number | null; ma120: number | null; ma200: number | null;
-  rsi14: number | null; atr14: number | null; relativeStrength: number | null;
+  return1d: number | null; return5d: number | null; return20d: number | null; return60d: number | null;
+  ma20: number | null; ma60: number | null; ma120: number | null; ma200: number | null;
+  ma20Distance: number | null; ma60Distance: number | null; rsi14: number | null; atr14: number | null;
+  atrPercent: number | null; volumeRatio: number | null; relativeStrength: number | null;
   newsScore: number | null; compositeScore: number | null; scoreChange1d: number | null;
 };
 type AssetHistory = {
@@ -42,6 +44,22 @@ type MarketScore = {
   date: string; overallScore: number; globalScore: number | null; koreaScore: number | null;
   overallChange: number | null; globalChange: number | null; koreaChange: number | null;
   marketRegime: string;
+};
+type KisMarketInsight = {
+  scope: 'MARKET'; symbol: 'KOSPI' | 'KOSDAQ'; date: string; price: number | null; changeRate: number | null;
+  advance: number | null; decline: number | null; breadthPercent: number | null;
+  foreignNetAmount: number | null; institutionNetAmount: number | null; retailNetAmount: number | null;
+};
+type KisAssetInsight = {
+  scope: 'ASSET'; symbol: string; date: string; price: number | null; changeRate: number | null;
+  per: number | null; pbr: number | null; turnoverRate: number | null; marketCap: number | null;
+  foreignNetQty: number | null; institutionNetQty: number | null; retailNetQty: number | null; programNetQty: number | null;
+  foreignExhaustionRate: number | null; loanBalanceRate: number | null; high52wDistance: number | null; low52wDistance: number | null;
+  warnings: string[];
+};
+type KisDashboard = {
+  asOf: string | null; markets: KisMarketInsight[]; assets: KisAssetInsight[];
+  decision: { title: string; stance: 'POSITIVE' | 'NEUTRAL' | 'CAUTIOUS'; reasons: string[]; risks: string[]; nextChecks: string[] };
 };
 type ReportListItem = {
   id: number; reportDate: string; reportType: string; overallScore: number;
@@ -134,6 +152,7 @@ const emptyEventForm: EconomicEventInput = {
 const emptyNotifications: NotificationState = {
   settings: [], configured: { TELEGRAM: false, EMAIL: false }, jobs: [], deliveries: [],
 };
+const emptyKis: KisDashboard = { asOf: null, markets: [], assets: [], decision: { title: 'KIS 판단 데이터 수집 대기', stance: 'NEUTRAL', reasons: [], risks: [], nextChecks: [] } };
 
 function localDateTime(iso: string) {
   const date = new Date(iso);
@@ -158,6 +177,7 @@ export default function Home() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [market, setMarket] = useState<MarketSnapshot[]>([]);
   const [scores, setScores] = useState<MarketScore | null>(null);
+  const [kis, setKis] = useState<KisDashboard>(emptyKis);
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [reportDetail, setReportDetail] = useState<ReportDetail | null>(null);
   const [news, setNews] = useState<NewsData>({ events: [], scores: [] });
@@ -198,9 +218,10 @@ export default function Home() {
   }, []);
 
   const loadDashboard = useCallback(async () => {
-    const data = await api<{ market: MarketSnapshot[]; scores: MarketScore | null }>('/api/dashboard');
+    const data = await api<{ market: MarketSnapshot[]; scores: MarketScore | null; kis: KisDashboard }>('/api/dashboard');
     setMarket(data.market);
     setScores(data.scores);
+    setKis(data.kis);
   }, []);
 
   const loadReports = useCallback(async () => {
@@ -259,12 +280,13 @@ export default function Home() {
     Promise.all([
       api<{ assets: Asset[] }>('/api/assets'),
       api<{ status: string }>('/api/health'),
-      api<{ market: MarketSnapshot[]; scores: MarketScore | null }>('/api/dashboard'),
+      api<{ market: MarketSnapshot[]; scores: MarketScore | null; kis: KisDashboard }>('/api/dashboard'),
     ]).then(([assetData, health, dashboard]) => {
       if (!active) return;
       setAssets(assetData.assets);
       setMarket(dashboard.market);
       setScores(dashboard.scores);
+      setKis(dashboard.kis);
       setDbReady(health.status === 'ok');
     }).catch((error: Error) => active && setMessage(error.message))
       .finally(() => active && setLoading(false));
@@ -382,12 +404,14 @@ export default function Home() {
     setCollectingBatch(true);
     setMessage('');
     try {
-      const data = await api<{ batch: { calls: number; successful: number }; quota: ProviderQuota }>(
+      const data = await api<{ batch: { calls: number; successful: number }; kis: { successful: number; requested: number } | null; quota: ProviderQuota }>(
         '/api/admin/collect', { method: 'POST', body: JSON.stringify({ maxCalls: 5, provider }) }, adminToken,
       );
       await Promise.all([loadAssets(), loadDashboard()]);
       const label = provider === 'KIS' ? '한국 KIS 수집' : '우선순위 수집';
-      setMessage(data.quota.providerLimited && data.batch.successful === 0
+      setMessage(provider === 'KIS' && data.kis
+        ? `${label}: 일봉 ${data.batch.successful}/${data.batch.calls}개 · 수급·시장폭·종목지표 ${data.kis.successful}/${data.kis.requested}개 갱신`
+        : data.quota.providerLimited && data.batch.successful === 0
         ? `${label} ${data.batch.successful}/${data.batch.calls}개 성공 · Alpha Vantage는 24시간 차단 중이며 KIS 대상은 최근 수집 여부를 확인하세요.`
         : `${label} ${data.batch.successful}/${data.batch.calls}개 성공 · Alpha 앱 기록 기준 최근 24시간 잔여 ${data.quota.remaining}/${data.quota.limit}회${data.quota.providerLimited ? ' (Alpha 차단 중, KIS 정상)' : ''}`);
     } catch (error) {
@@ -585,7 +609,7 @@ export default function Home() {
             <h1 className="mt-1 text-lg font-semibold tracking-tight sm:text-xl">{view === 'dashboard' ? '오늘의 시장 환경' : view === 'reports' ? 'Daily Reports' : view === 'news' ? 'Market Moving News' : view === 'calendar' ? 'Economic Calendar' : view === 'analytics' ? 'Model Analytics' : view === 'watchlist' ? 'Watchlist' : '운영 관리'}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 12</span>
+            <span className="hidden rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 sm:inline">Phase 13</span>
             <button aria-label="알림" className="grid size-10 place-items-center rounded-xl border bg-white text-muted-foreground shadow-sm" type="button"><Bell className="size-4" /></button>
           </div>
         </header>
@@ -602,7 +626,7 @@ export default function Home() {
         <div className="mx-auto max-w-[1500px] p-5 sm:p-8">
           {message && <output className="mb-5 block rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</output>}
           {view === 'dashboard'
-            ? <Dashboard assets={assets} market={market} scores={scores} loading={loading} />
+            ? <Dashboard assets={assets} market={market} scores={scores} kis={kis} loading={loading} />
             : view === 'reports'
               ? <Reports reports={reports} detail={reportDetail} events={economicEvents} loading={loadingReports} onSelect={loadReport} />
               : view === 'news'
@@ -684,10 +708,10 @@ function Brand() {
 }
 
 function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 12</p></div>;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 13</p></div>;
 }
 
-function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; loading: boolean }) {
+function Dashboard({ assets, market, scores, kis, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; kis: KisDashboard; loading: boolean }) {
   const enabled = assets.filter((asset) => asset.enabled).length;
   const live = market.filter((item) => item.price !== null);
   const scoreCards = scores ? [
@@ -695,12 +719,26 @@ function Dashboard({ assets, market, scores, loading }: { assets: Asset[]; marke
     { label: 'Global Risk', value: scores.globalScore, change: scores.globalChange, tone: 'text-blue-600', bar: 'bg-blue-500' },
     { label: 'Korea Risk', value: scores.koreaScore, change: scores.koreaChange, tone: 'text-amber-600', bar: 'bg-amber-500' },
   ] : sampleScores.map((score) => ({ ...score, change: Number(score.change), sample: true }));
+  const amount = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${(value / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}억원`;
+  const quantity = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${(value / 10_000).toLocaleString(undefined, { maximumFractionDigits: 0 })}만주`;
+  const stanceTone = kis.decision.stance === 'POSITIVE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : kis.decision.stance === 'CAUTIOUS' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200';
   return <div className="space-y-6">
     <section className="grid gap-4 md:grid-cols-3" aria-label="시장 점수">
       {scoreCards.map((score) => <article key={score.label} className="overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between"><div><p className="text-sm font-medium text-muted-foreground">{score.label}</p><div className="mt-2 flex items-baseline gap-2"><strong className="text-4xl font-semibold tracking-[-0.05em]">{score.value === null ? '—' : score.value.toFixed(0)}</strong><span className={`text-sm font-semibold ${score.tone}`}>{score.change === null ? '' : `${score.change > 0 ? '+' : ''}${score.change.toFixed(1)}`}</span></div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">{'sample' in score ? '예시' : scores?.marketRegime}</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${score.bar}`} style={{ width: `${score.value ?? 0}%` }} /></div></article>)}
     </section>
+    <section className="grid gap-4 xl:grid-cols-[1fr_1.5fr]">
+      <article className={`rounded-2xl border p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] ${stanceTone}`}>
+        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.16em]">오늘의 판단</p><h2 className="mt-2 text-xl font-semibold">{kis.decision.title}</h2></div><span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold">{kis.asOf ?? '수집 대기'}</span></div>
+        <div className="mt-4 space-y-2 text-sm">{kis.decision.reasons.length ? kis.decision.reasons.map((reason) => <p key={reason}>• {reason}</p>) : <p>Admin에서 ‘한국 KIS 전체 갱신’을 실행하면 실제 판단이 표시됩니다.</p>}</div>
+        {kis.decision.risks.length > 0 && <div className="mt-4 border-t border-current/15 pt-3 text-sm"><strong>주의</strong>{kis.decision.risks.map((risk) => <p className="mt-1" key={risk}>• {risk}</p>)}</div>}
+      </article>
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between"><div><h2 className="font-semibold">한국 시장 수급 · 시장폭</h2><p className="mt-1 text-sm text-muted-foreground">외국인·기관 방향과 상승 종목 확산을 함께 봅니다.</p></div><span className="text-xs text-muted-foreground">KIS 조회 전용</span></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">{kis.markets.length ? kis.markets.map((item) => <div key={item.symbol} className="rounded-xl border p-4"><div className="flex items-center justify-between"><strong>{item.symbol}</strong><span className={`text-sm font-semibold ${(item.changeRate ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.changeRate === null ? '—' : `${item.changeRate > 0 ? '+' : ''}${item.changeRate.toFixed(2)}%`}</span></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs"><span className="rounded-lg bg-slate-50 p-2">상승 비중<strong className="mt-1 block text-sm">{item.breadthPercent?.toFixed(1) ?? '—'}%</strong></span><span className="rounded-lg bg-slate-50 p-2">상승 / 하락<strong className="mt-1 block text-sm">{item.advance ?? '—'} / {item.decline ?? '—'}</strong></span><span className="rounded-lg bg-slate-50 p-2">외국인<strong className="mt-1 block text-sm">{amount(item.foreignNetAmount)}</strong></span><span className="rounded-lg bg-slate-50 p-2">기관<strong className="mt-1 block text-sm">{amount(item.institutionNetAmount)}</strong></span></div></div>) : <p className="col-span-2 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">KIS 갱신 후 KOSPI·KOSDAQ 실제 수급과 시장폭이 표시됩니다.</p>}</div>
+      </article>
+    </section>
+    {kis.assets.length > 0 && <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">한국 관심종목 판단표</h2><p className="mt-1 text-sm text-muted-foreground">가격만 보지 않고 수급·밸류에이션·52주 위치를 함께 확인합니다.</p></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[920px] text-sm"><thead className="border-b text-left text-xs text-muted-foreground"><tr><th className="pb-3">종목</th><th className="pb-3">등락</th><th className="pb-3">외국인</th><th className="pb-3">기관</th><th className="pb-3">프로그램</th><th className="pb-3">PER / PBR</th><th className="pb-3">외국인 소진율</th><th className="pb-3">52주 고점 대비</th><th className="pb-3">상태</th></tr></thead><tbody className="divide-y">{kis.assets.map((item) => <tr key={item.symbol}><td className="py-3 font-semibold">{item.symbol}</td><td className={`py-3 font-semibold ${(item.changeRate ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.changeRate === null ? '—' : `${item.changeRate > 0 ? '+' : ''}${item.changeRate.toFixed(2)}%`}</td><td>{quantity(item.foreignNetQty)}</td><td>{quantity(item.institutionNetQty)}</td><td>{quantity(item.programNetQty)}</td><td>{item.per?.toFixed(1) ?? '—'} / {item.pbr?.toFixed(2) ?? '—'}</td><td>{item.foreignExhaustionRate?.toFixed(1) ?? '—'}%</td><td>{item.high52wDistance?.toFixed(1) ?? '—'}%</td><td>{item.warnings.length ? <span className="font-semibold text-rose-600">{item.warnings.join(', ')}</span> : <span className="text-emerald-600">정상</span>}</td></tr>)}</tbody></table></div></section>}
     <section className="grid gap-6 xl:grid-cols-[1.55fr_0.9fr]">
-      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[700px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">MA20</th><th className="pb-3 font-medium">RSI14</th><th className="pb-3 font-medium">상대강도</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td><td className={`py-4 font-semibold tabular-nums ${(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.return1d === null ? '—' : `${item.return1d > 0 ? '+' : ''}${item.return1d.toFixed(2)}%`}</td><td className="py-4 tabular-nums text-muted-foreground">{item.ma20?.toFixed(2) ?? '—'}</td><td className="py-4 tabular-nums text-muted-foreground">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.relativeStrength === null ? '—' : `${item.relativeStrength > 0 ? '+' : ''}${item.relativeStrength.toFixed(2)}%`}</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">Market Pulse</p><p className="mt-1 text-sm text-muted-foreground">{live.length ? `최근 일봉 기준 · ${live[0].date}` : 'Admin에서 가격 수집을 실행하면 실제 데이터로 전환됩니다.'}</p></div><span className="text-xs font-medium text-muted-foreground">{live.length ? 'Live' : 'Sample'}</span></div><div className="mt-5 overflow-x-auto">{live.length ? <table className="w-full min-w-[850px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">자산</th><th className="pb-3 font-medium">종가</th><th className="pb-3 font-medium">1일</th><th className="pb-3 font-medium">5일</th><th className="pb-3 font-medium">20일</th><th className="pb-3 font-medium">RSI</th><th className="pb-3 font-medium">ATR%</th><th className="pb-3 font-medium">거래량</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{live.map((item) => <tr key={item.id}><td className="py-4"><p className="font-semibold">{item.symbol}</p><p className="text-xs text-muted-foreground">{item.name}</p></td><td className="py-4 tabular-nums">{item.price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>{[item.return1d, item.return5d, item.return20d].map((value, index) => <td key={index} className={`py-4 font-semibold tabular-nums ${(value ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`}</td>)}<td className="py-4 tabular-nums">{item.rsi14?.toFixed(1) ?? '—'}</td><td className="py-4 tabular-nums">{item.atrPercent?.toFixed(2) ?? '—'}%</td><td className="py-4 tabular-nums">{item.volumeRatio?.toFixed(2) ?? '—'}x</td><td className="py-4 text-right"><span className="inline-flex min-w-11 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.compositeScore?.toFixed(0) ?? '—'}</span></td></tr>)}</tbody></table> : <table className="w-full min-w-[560px] text-sm"><thead className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="pb-3 font-medium">지표</th><th className="pb-3 font-medium">현재</th><th className="pb-3 font-medium">변화</th><th className="pb-3 text-right font-medium">Score</th></tr></thead><tbody className="divide-y">{samplePulse.map((item) => <tr key={item.symbol}><td className="py-4 font-semibold">{item.symbol}</td><td className="py-4 tabular-nums text-muted-foreground">{item.value}</td><td className={`py-4 font-semibold tabular-nums ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}><span className="inline-flex items-center gap-1">{item.up ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}{item.change}</span></td><td className="py-4 text-right"><span className="inline-flex min-w-10 justify-center rounded-lg bg-slate-100 px-2 py-1 font-semibold tabular-nums">{item.score}</span></td></tr>)}</tbody></table>}</div></article>
       <article className="relative overflow-hidden rounded-2xl bg-[#10243d] p-6 text-white shadow-[0_18px_50px_rgb(16_36_61/18%)]"><div className="absolute -right-16 -top-16 size-56 rounded-full bg-blue-400/15 blur-2xl" /><CircleGauge className="size-7 text-emerald-300" /><p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Collection status</p><h2 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">추적 자산 {loading ? '—' : assets.length}개<br />가격 연결 {loading ? '—' : live.length}개</h2><p className="mt-4 text-sm leading-6 text-slate-300">활성 자산 {loading ? '—' : enabled}개를 관리 중입니다. Admin에서 자산별 일봉 수집을 실행할 수 있습니다.</p></article>
     </section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)] sm:p-6"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><ChartNoAxesCombined className="size-5" /></span><div><h2 className="font-semibold">Phase 9 Analytics</h2><p className="text-sm text-muted-foreground">예측 결과가 쌓이면 방향·범위 적중률과 시장 구간별 성과를 자동 집계합니다.</p></div></div></section>
@@ -748,7 +786,6 @@ function Watchlist({ assets, market, loading }: { assets: Asset[]; market: Marke
         <div className="mt-4 grid grid-cols-3 gap-2 text-xs"><span className="rounded-lg bg-slate-50 p-2">Score <strong className="block text-sm">{number(item?.compositeScore, 0)}</strong></span><span className="rounded-lg bg-slate-50 p-2">MA20 <strong className="block text-sm">{number(item?.ma20)}</strong></span><span className="rounded-lg bg-slate-50 p-2">RSI <strong className="block text-sm">{number(item?.rsi14, 1)}</strong></span></div>
       </button>)}</div>
     </section>
-
     {selected && <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b p-5 sm:p-6"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Asset detail</p><h2 className="mt-2 text-2xl font-semibold">{selected.asset.name}</h2><p className="mt-1 text-sm text-muted-foreground">{selected.asset.symbol} · {selected.asset.market} · {selected.asset.currency}{snapshot?.date && ` · ${snapshot.date}`}</p></div><div className="text-right"><strong className="block text-3xl tabular-nums">{number(snapshot?.price, 4)}</strong><span className={`text-sm font-semibold ${(snapshot?.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{percent(snapshot?.return1d)}</span></div></div>
       <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[1.3fr_1fr]">
@@ -759,7 +796,9 @@ function Watchlist({ assets, market, loading }: { assets: Asset[]; market: Marke
         <div className="grid grid-cols-2 gap-3 content-start">{[
           ['Score', snapshot?.compositeScore, 0], ['Score Change', snapshot?.scoreChange1d, 1],
           ['MA20', snapshot?.ma20, 2], ['MA60', snapshot?.ma60, 2], ['MA120', snapshot?.ma120, 2], ['MA200', snapshot?.ma200, 2],
-          ['RSI14', snapshot?.rsi14, 1], ['Relative Strength', snapshot?.relativeStrength, 2], ['News Score', snapshot?.newsScore, 0],
+          ['1D Return %', snapshot?.return1d, 2], ['5D Return %', snapshot?.return5d, 2], ['20D Return %', snapshot?.return20d, 2], ['60D Return %', snapshot?.return60d, 2],
+          ['MA20 거리 %', snapshot?.ma20Distance, 2], ['MA60 거리 %', snapshot?.ma60Distance, 2], ['RSI14', snapshot?.rsi14, 1], ['ATR %', snapshot?.atrPercent, 2],
+          ['거래량 비율', snapshot?.volumeRatio, 2], ['Relative Strength', snapshot?.relativeStrength, 2], ['News Score', snapshot?.newsScore, 0],
         ].map(([label, value, digits]) => <div key={String(label)} className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">{label}</p><strong className="mt-1 block tabular-nums">{number(value as number | null | undefined, digits as number)}</strong></div>)}</div>
       </div>
       {history.length > 0 && <div className="overflow-x-auto border-t"><Table><TableHeader><TableRow><TableHead>날짜</TableHead><TableHead>종가</TableHead><TableHead>1일</TableHead><TableHead>MA20</TableHead><TableHead>RSI14</TableHead><TableHead>거래량</TableHead></TableRow></TableHeader><TableBody>{history.slice(0, 10).map((item) => <TableRow key={item.date}><TableCell>{item.date}</TableCell><TableCell>{number(item.close, 4)}</TableCell><TableCell className={(item.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{percent(item.return1d)}</TableCell><TableCell>{number(item.ma20)}</TableCell><TableCell>{number(item.rsi14, 1)}</TableCell><TableCell>{number(item.volume, 0)}</TableCell></TableRow>)}</TableBody></Table></div>}
@@ -831,7 +870,7 @@ function Admin({ assets, loading, token, collectingId, collectingNewsId, bootstr
     <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-sm leading-6 text-blue-950"><strong>무료 호출 최적화 · 조회 전용</strong><p className="mt-1">한국 지수·주식·ETF는 KIS 일봉 시세를, 나머지는 Alpha Vantage를 사용합니다. 일괄 수집은 미수집·오래된 자산부터 최대 5개만 처리하고 같은 자산은 18시간 동안 다시 호출하지 않습니다. 잔여 횟수는 Alpha 호출만 표시합니다. KIS 주문·정정·취소·잔고·계좌 API는 구현하지 않습니다.</p></section>
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Telegram · Email 알림</h2><p className="mt-1 text-sm text-muted-foreground">매일 설정 시각 이후 최신 리포트를 채널별 한 번만 발송합니다.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onLoadNotifications} disabled={!token}>불러오기</Button><Button variant="outline" onClick={onSendNotifications} disabled={!token || sendingNotifications || !notifications.settings.some((item) => item.enabled)}>{sendingNotifications && <Loader2 className="animate-spin" />}지금 발송</Button><Button onClick={onSaveNotifications} disabled={!token || savingNotifications || notifications.settings.length === 0}>{savingNotifications && <Loader2 className="animate-spin" />}설정 저장</Button></div></div>
-      {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : 'Cloudflare EMAIL binding · EMAIL_FROM · EMAIL_TO'}</p></article>)}</div>}
+      {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : '무료 Resend: RESEND_API_KEY · EMAIL_TO (발신 도메인이 있으면 EMAIL_FROM)'}</p></article>)}</div>}
       {notifications.jobs.length > 0 && <div className="mt-5 overflow-x-auto"><p className="mb-2 text-sm font-semibold">최근 작업</p><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>시작</TableHead><TableHead>오류</TableHead></TableRow></TableHeader><TableBody>{notifications.jobs.slice(0, 5).map((job) => <TableRow key={job.id}><TableCell>{job.jobName}</TableCell><TableCell><span className={`rounded-full px-2 py-1 text-xs font-semibold ${job.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-700' : job.status === 'FAILED' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'}`}>{job.status}</span></TableCell><TableCell className="whitespace-nowrap text-muted-foreground">{new Date(job.startedAt).toLocaleString()}</TableCell><TableCell className="max-w-80 text-xs text-rose-600">{job.errorMessage ?? '—'}</TableCell></TableRow>)}</TableBody></Table></div>}
     </section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>

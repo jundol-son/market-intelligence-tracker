@@ -55,7 +55,7 @@ export const alphaSourceFor = (symbol: string): AlphaSource =>
   catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
 
 export const kisSourceFor = (symbol: string): KisSource | null =>
-  catalog.get(symbol.toUpperCase())?.kisSource ?? null;
+  catalog.get(symbol.toUpperCase())?.kisSource ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
 
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());

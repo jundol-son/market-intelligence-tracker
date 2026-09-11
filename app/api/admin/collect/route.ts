@@ -7,6 +7,7 @@ import { recalculateScores } from '@/db/scoring';
 import { apiError, json, requireAdmin } from '@/lib/api';
 import { isCollectable, kisSourceFor } from '@/lib/catalog';
 import { isProviderDailyLimitError } from '@/lib/provider-error';
+import { collectKisInsights } from '@/db/kis-insights';
 
 export async function POST(request: Request) {
   const denied = requireAdmin(request);
@@ -56,7 +57,10 @@ export async function POST(request: Request) {
       await recalculateScores();
       await evaluateForecastResults();
     }
-    return json({ batch: { requested, calls, successful, collections }, quota: await providerUsage() });
+    const kis = provider === 'KIS' && credentials.kisAppKey && credentials.kisAppSecret
+      ? await collectKisInsights(credentials.kisAppKey, credentials.kisAppSecret)
+      : null;
+    return json({ batch: { requested, calls, successful, collections }, kis, quota: await providerUsage() });
   } catch (error) {
     return apiError(error);
   }

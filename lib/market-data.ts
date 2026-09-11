@@ -135,6 +135,18 @@ export class AlphaVantageProvider implements MarketDataProvider {
 type KisBody = Record<string, unknown> & { rt_cd?: string; msg1?: string; output2?: unknown };
 let kisTokenCache: { appKey: string; token: string; expiresAt: number } | undefined;
 let kisTokenRequest: Promise<string> | undefined;
+let kisRequestPace = Promise.resolve();
+let kisLastRequestAt = 0;
+
+export function paceKisRequest() {
+  const turn = kisRequestPace.then(async () => {
+    const wait = Math.max(0, 300 - (Date.now() - kisLastRequestAt));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    kisLastRequestAt = Date.now();
+  });
+  kisRequestPace = turn.catch(() => undefined);
+  return turn;
+}
 
 function parseKisDate(value: unknown): string {
   const raw = typeof value === 'string' ? value : '';
@@ -161,7 +173,7 @@ export function parseKisPriceBars(input: unknown, kind: KisSource['kind']): Pric
   return prices;
 }
 
-async function requestKisToken(appKey: string, appSecret: string): Promise<string> {
+export async function requestKisToken(appKey: string, appSecret: string): Promise<string> {
   if (kisTokenCache?.appKey === appKey && kisTokenCache.expiresAt > Date.now() + 300_000) return kisTokenCache.token;
   if (kisTokenRequest) return kisTokenRequest;
   kisTokenRequest = (async () => {
@@ -213,15 +225,22 @@ export class KisReadOnlyProvider implements MarketDataProvider {
       };
       if (this.source.kind === 'DOMESTIC') params.FID_ORG_ADJ_PRC = '0';
       url.search = new URLSearchParams(params).toString();
-      const response = await fetch(url, {
-        headers: {
-          'content-type': 'application/json', authorization: `Bearer ${token}`, appkey: this.appKey,
-          appsecret: this.appSecret, tr_id: this.source.kind === 'INDEX' ? 'FHKUP03500100' : 'FHKST03010100', custtype: 'P',
-        },
-        signal: AbortSignal.timeout(15_000),
-      });
-      const body = await response.json().catch(() => null) as KisBody | null;
-      if (!response.ok) throw new Error(`KIS 시세 조회 실패 (${response.status}): ${body?.msg1 ?? '응답 오류'}`);
+      let response: Response | undefined;
+      let body: KisBody | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await paceKisRequest();
+        response = await fetch(url, {
+          headers: {
+            'content-type': 'application/json', authorization: `Bearer ${token}`, appkey: this.appKey,
+            appsecret: this.appSecret, tr_id: this.source.kind === 'INDEX' ? 'FHKUP03500100' : 'FHKST03010100', custtype: 'P',
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+        body = await response.json().catch(() => null) as KisBody | null;
+        if (response.ok || attempt > 0 || !/초당 거래건수|EGW00201/.test(body?.msg1 ?? '')) break;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      if (!response?.ok) throw new Error(`KIS 시세 조회 실패 (${response?.status ?? 'unknown'}): ${body?.msg1 ?? '응답 오류'}`);
       const rows = parseKisPriceBars(body, this.source.kind);
       rows.forEach((row) => prices.set(row.date, row));
       const oldest = rows[0]?.date;

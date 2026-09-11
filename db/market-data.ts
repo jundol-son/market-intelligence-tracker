@@ -9,12 +9,19 @@ export type MarketSnapshot = {
   date: string | null;
   price: number | null;
   return1d: number | null;
+  return5d: number | null;
+  return20d: number | null;
+  return60d: number | null;
   ma20: number | null;
   ma60: number | null;
   ma120: number | null;
   ma200: number | null;
   rsi14: number | null;
   atr14: number | null;
+  atrPercent: number | null;
+  volumeRatio: number | null;
+  ma20Distance: number | null;
+  ma60Distance: number | null;
   relativeStrength: number | null;
   newsScore: number | null;
   compositeScore: number | null;
@@ -73,7 +80,10 @@ export async function listHistory(assetId: number, limit = 250) {
 
 export async function listMarketSnapshots(): Promise<MarketSnapshot[]> {
   const result = await getDb().prepare(`SELECT a.id, a.symbol, a.name, p.date, p.close AS price,
-    i.return_1d AS return1d, i.ma20, i.ma60, i.ma120, i.ma200, i.rsi14, i.atr14,
+    i.return_1d AS return1d, i.return_5d AS return5d, i.return_20d AS return20d,
+    i.return_60d AS return60d, i.ma20, i.ma60, i.ma120, i.ma200, i.rsi14, i.atr14,
+    CASE WHEN p.close>0 THEN i.atr14/p.close*100 END AS atrPercent, i.volume_ratio AS volumeRatio,
+    i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance,
     i.relative_strength AS relativeStrength, s.news_score AS newsScore, s.composite_score AS compositeScore,
     s.score_change_1d AS scoreChange1d
     FROM assets a

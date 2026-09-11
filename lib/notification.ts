@@ -32,6 +32,12 @@ export type NotificationPayload = {
   }>;
   news: Array<{ title: string; sentiment: string; impactScore: number }>;
   events: Array<{ eventName: string; scheduledAt: string; expectedImpact: number }>;
+  kis?: {
+    asOf: string | null;
+    decision: { title: string; stance: 'POSITIVE' | 'NEUTRAL' | 'CAUTIOUS'; reasons: string[]; risks: string[]; nextChecks: string[] };
+    markets: Array<{ symbol: string; breadthPercent: number | null; foreignNetAmount: number | null; institutionNetAmount: number | null }>;
+    assets: Array<{ symbol: string; foreignNetQty: number | null; institutionNetQty: number | null; programNetQty: number | null; per: number | null; pbr: number | null; high52wDistance: number | null; warnings: string[] }>;
+  };
 };
 
 function validTimezone(value: string) {
@@ -97,6 +103,7 @@ function escapeHtml(value: string) {
 }
 
 export function emailMessage(payload: NotificationPayload, reportUrl: string) {
+  const money = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${(value / 100).toFixed(0)}억원`;
   const text = [telegramMessage(payload, reportUrl), '', 'WATCHLIST',
     ...payload.metrics.map((item) => `${item.symbol} ${number(item.compositeScore)} · ${signed(item.dailyReturn)}`), '',
     'NEWS', ...payload.news.map((item) => `${item.sentiment} · Impact ${item.impactScore} · ${item.title}`), '',
@@ -105,7 +112,9 @@ export function emailMessage(payload: NotificationPayload, reportUrl: string) {
   const rows = payload.metrics.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong><br>${escapeHtml(item.name)}</td><td>${number(item.price)}</td><td>${signed(item.dailyReturn)}</td><td>${number(item.trendScore)}</td><td>${number(item.momentumScore)}</td><td>${number(item.riskScore)}</td><td>${number(item.newsScore)}</td><td><strong>${number(item.compositeScore)}</strong></td></tr>`).join('');
   const news = payload.news.map((item) => `<li><strong>${escapeHtml(item.sentiment)}</strong> · Impact ${item.impactScore} · ${escapeHtml(item.title)}</li>`).join('') || '<li>주요 뉴스 없음</li>';
   const events = payload.events.map((item) => `<li>Impact ${item.expectedImpact} · ${escapeHtml(item.eventName)} · ${escapeHtml(item.scheduledAt)}</li>`).join('') || '<li>예정된 주요 이벤트 없음</li>';
-  const html = `<main style="font-family:Arial,sans-serif;color:#172033;max-width:760px;margin:auto"><h1>Daily Market Intelligence · ${escapeHtml(payload.reportDate)}</h1><p>${escapeHtml(payload.summary)}</p><h2>Market Score</h2><p>Overall <strong>${number(payload.overallScore)}</strong> · Global ${number(payload.globalScore)} · Korea ${number(payload.koreaScore)}</p><h2>Next Session</h2><p>Up ${number(payload.upProbability, '%')} · Range ${signed(payload.expectedLow)} ~ ${signed(payload.expectedHigh)} · ${escapeHtml(payload.responseLevel)}</p><h2>Watchlist</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>Asset</th><th>Price</th><th>1D</th><th>Trend</th><th>Momentum</th><th>Risk</th><th>News</th><th>Score</th></tr></thead><tbody>${rows}</tbody></table><h2>News</h2><ul>${news}</ul><h2>Upcoming Events</h2><ul>${events}</ul><p><a href="${escapeHtml(reportUrl)}">View full report</a></p></main>`;
+  const kisMarkets = payload.kis?.markets.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${item.breadthPercent?.toFixed(1) ?? '—'}%</td><td>${money(item.foreignNetAmount)}</td><td>${money(item.institutionNetAmount)}</td></tr>`).join('') ?? '';
+  const kisDecision = payload.kis ? `<section style="padding:16px;border-radius:12px;background:#f1f5f9"><h2 style="margin-top:0">오늘의 판단 · ${escapeHtml(payload.kis.decision.title)}</h2>${payload.kis.decision.reasons.map((item) => `<p>• ${escapeHtml(item)}</p>`).join('')}<p><strong>확인할 것:</strong> ${escapeHtml(payload.kis.decision.nextChecks.join(' · '))}</p></section><h2>한국 수급 · 시장폭</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>시장</th><th>상승 비중</th><th>외국인</th><th>기관</th></tr></thead><tbody>${kisMarkets}</tbody></table>` : '';
+  const html = `<main style="font-family:Arial,sans-serif;color:#172033;max-width:760px;margin:auto"><h1>Daily Market Intelligence · ${escapeHtml(payload.reportDate)}</h1><p>${escapeHtml(payload.summary)}</p>${kisDecision}<h2>Market Score</h2><p>Overall <strong>${number(payload.overallScore)}</strong> · Global ${number(payload.globalScore)} · Korea ${number(payload.koreaScore)}</p><h2>Next Session</h2><p>Up ${number(payload.upProbability, '%')} · Range ${signed(payload.expectedLow)} ~ ${signed(payload.expectedHigh)} · ${escapeHtml(payload.responseLevel)}</p><h2>Watchlist</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>Asset</th><th>Price</th><th>1D</th><th>Trend</th><th>Momentum</th><th>Risk</th><th>News</th><th>Score</th></tr></thead><tbody>${rows}</tbody></table><h2>News</h2><ul>${news}</ul><h2>Upcoming Events</h2><ul>${events}</ul><p><a href="${escapeHtml(reportUrl)}">View full report</a></p></main>`;
   return { subject: `Market Intelligence · ${payload.reportDate}`, text, html };
 }
 

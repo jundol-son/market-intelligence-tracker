@@ -3,6 +3,7 @@ import {
   emailMessage, notificationDue, telegramCommandMessage, telegramMessage,
   type NotificationChannel, type NotificationPayload, type NotificationSettingInput,
 } from '@/lib/notification';
+import { getKisDashboard } from './kis-insights';
 
 export type NotificationEnv = Cloudflare.Env & {
   DB: D1Database;
@@ -10,6 +11,7 @@ export type NotificationEnv = Cloudflare.Env & {
   TELEGRAM_CHAT_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   EMAIL?: SendEmail;
+  RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   EMAIL_TO?: string;
   PUBLIC_APP_URL?: string;
@@ -49,7 +51,7 @@ export async function notificationAdminState(env: NotificationEnv) {
     settings: channelSettings,
     configured: {
       TELEGRAM: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID && env.TELEGRAM_WEBHOOK_SECRET),
-      EMAIL: Boolean(env.EMAIL && env.EMAIL_FROM && env.EMAIL_TO),
+      EMAIL: Boolean(env.EMAIL_TO && ((env.EMAIL && env.EMAIL_FROM) || env.RESEND_API_KEY)),
     },
     jobs: jobs.results,
     deliveries: deliveries.results,
@@ -70,7 +72,7 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
     expected_high AS expectedHigh FROM reports ORDER BY report_date DESC, id DESC LIMIT 1`)
     .first<Omit<NotificationPayload, 'responseLevel' | 'metrics' | 'news' | 'events'>>();
   if (!report) return null;
-  const [metricRows, forecast, newsRows, eventRows] = await Promise.all([
+  const [metricRows, forecast, newsRows, eventRows, kis] = await Promise.all([
     db.prepare(`SELECT symbol, name, price, daily_return AS dailyReturn,
       composite_score AS compositeScore, trend_score AS trendScore,
       momentum_score AS momentumScore, risk_score AS riskScore, news_score AS newsScore
@@ -87,6 +89,7 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
       expected_impact AS expectedImpact FROM economic_events WHERE status='SCHEDULED'
       AND datetime(scheduled_at)>=datetime(?) ORDER BY expected_impact DESC, scheduled_at LIMIT 5`)
       .bind(now.toISOString()).all<NotificationPayload['events'][number]>(),
+    getKisDashboard(),
   ]);
   return {
     ...report,
@@ -94,6 +97,7 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
     metrics: metricRows.results,
     news: newsRows.results,
     events: eventRows.results,
+    kis,
   };
 }
 
@@ -108,9 +112,19 @@ async function sendTelegram(env: NotificationEnv, text: string) {
 
 async function deliver(channel: NotificationChannel, payload: NotificationPayload, env: NotificationEnv, reportUrl: string) {
   if (channel === 'TELEGRAM') return sendTelegram(env, telegramMessage(payload, reportUrl));
-  if (!env.EMAIL || !env.EMAIL_FROM || !env.EMAIL_TO) throw new Error('Email Binding과 발신·수신 주소가 설정되지 않았습니다.');
+  if (!env.EMAIL_TO) throw new Error('Email 수신 주소가 설정되지 않았습니다.');
   const message = emailMessage(payload, reportUrl);
-  await env.EMAIL.send({ from: env.EMAIL_FROM, to: env.EMAIL_TO, ...message });
+  if (env.EMAIL && env.EMAIL_FROM) return env.EMAIL.send({ from: env.EMAIL_FROM, to: env.EMAIL_TO, ...message });
+  if (!env.RESEND_API_KEY) throw new Error('무료 Email API 키가 설정되지 않았습니다.');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'user-agent': 'market-intelligence-tracker/1.0' },
+    body: JSON.stringify({ from: env.EMAIL_FROM ?? 'Market Intelligence <onboarding@resend.dev>', to: [env.EMAIL_TO], ...message }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(`Email 발송 실패 (${response.status}): ${error.message ?? '응답 오류'}`);
+  }
 }
 
 export async function runNotifications(env: NotificationEnv, options: {

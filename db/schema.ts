@@ -271,3 +271,14 @@ export const jobRuns = sqliteTable('job_runs', {
   status: text().notNull(),
   errorMessage: text('error_message'),
 });
+
+export const kisSnapshots = sqliteTable('kis_snapshots', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  snapshotKey: text('snapshot_key').notNull(),
+  snapshotDate: text('snapshot_date').notNull(),
+  scope: text().notNull(),
+  symbol: text().notNull(),
+  payloadJson: text('payload_json').notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('kis_snapshots_key_date_unique').on(table.snapshotKey, table.snapshotDate)]);
