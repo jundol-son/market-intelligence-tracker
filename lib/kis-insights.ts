@@ -75,7 +75,7 @@ export function parseKisAssetInsight(symbol: string, quoteInput: unknown, flowIn
   ];
   const warnings = warningMap.filter(([key]) => quote?.[key] === 'Y').map(([, label]) => label);
   if (!['', '0', '00'].includes(code(quote, 'mrkt_warn_cls_code'))) warnings.push('시장경고');
-  if (!['', '0', '00'].includes(code(quote, 'mang_issu_cls_code'))) warnings.push('관리종목');
+  if (!['', '0', '00', 'N'].includes(code(quote, 'mang_issu_cls_code'))) warnings.push('관리종목');
   return {
     scope: 'ASSET', symbol, date: date(flow?.stck_bsop_date, fallbackDate),
     price: n(quote, 'stck_prpr'), changeRate: n(quote, 'prdy_ctrt'), volume: n(quote, 'acml_vol'),

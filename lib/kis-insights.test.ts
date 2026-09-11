@@ -13,6 +13,7 @@ assert.equal(asset.foreignNetQty, 90000);
 assert.equal(asset.shortSellable, true);
 assert.deepEqual(asset.warnings, []);
 assert.deepEqual(parseKisAssetInsight('000660', ok({ mang_issu_cls_code: '0', mrkt_warn_cls_code: '00' }), ok([]), '2026-09-11').warnings, []);
+assert.deepEqual(parseKisAssetInsight('005930', ok({ mang_issu_cls_code: 'N' }), ok([]), '2026-09-11').warnings, []);
 assert.throws(() => parseKisMarketInsight('KOSPI', { rt_cd: '1', msg1: 'denied' }, ok([]), '2026-09-11'), /denied/);
 
 console.log('KIS insight tests passed');

@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const [counts, market, scores, kis] = await Promise.all([assetCounts(), listMarketSnapshots(), getLatestMarketScore(), getKisDashboard()]);
     return json({
-      phase: 12,
+      phase: 13,
       assets: { total: counts?.total ?? 0, enabled: counts?.enabled ?? 0 },
       market,
       scores,
