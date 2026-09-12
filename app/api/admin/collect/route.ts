@@ -18,9 +18,6 @@ export async function POST(request: Request) {
       kisAppKey: env.KIS_APP_KEY,
       kisAppSecret: env.KIS_APP_SECRET,
     };
-    if (!credentials.alphaVantageApiKey && !(credentials.kisAppKey && credentials.kisAppSecret)) {
-      return json({ error: '가격 공급자 API 키가 설정되지 않았습니다.' }, 503);
-    }
     const raw = await request.json().catch(() => ({})) as { maxCalls?: unknown; provider?: unknown };
     const requested = Number(raw.maxCalls ?? 5);
     if (!Number.isInteger(requested) || requested < 1 || requested > 10) {
