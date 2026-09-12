@@ -144,7 +144,7 @@ npm run build
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `TELEGRAM_WEBHOOK_SECRET` | 사용자 설정 필요 | Worker Secret |
-| `RESEND_API_KEY` / `EMAIL_TO` | 사용자 설정 필요 | Resend 무료 Sending-only API Key + Worker Secret |
+| `RESEND_API_KEY` / `EMAIL_TO` | 운영 설정 완료 | Resend 무료 Sending-only API Key + Worker Secret |
 | `EMAIL_FROM` | 선택 | 미설정 시 Resend 테스트 발신자 사용; 자체 도메인 연결 시 설정 |
 
 비밀값의 실제 내용은 README, 커밋, 이슈에 기록하지 않습니다. 변경 이력과 다음 작업은 로컬 작업공간 루트의 `CODEX_PROGRESS.md`에 누적합니다.
@@ -167,4 +167,4 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 KIS는 KOSPI·KOSDAQ·005930·000660·091160의 일봉 조회에만 사용합니다. 한 종목당 최대 3페이지에서 최신 260개를 저장하고 18시간 중복 호출을 막습니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
 
-알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고, 무료 Resend HTTPS API(3,000건/월·100건/일) fallback을 사용합니다. 실발송에는 `RESEND_API_KEY`·`EMAIL_TO` Worker Secret과 Admin의 Email 활성화가 필요합니다.
+알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고, 무료 Resend HTTPS API(3,000건/월·100건/일) fallback을 사용합니다. 운영 환경에는 `RESEND_API_KEY`·`EMAIL_TO` Worker Secret이 등록되어 있으며 Email은 평일 17:00(Asia/Seoul)에 활성화되어 있습니다.
