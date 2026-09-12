@@ -1,5 +1,5 @@
 import { providerError } from './provider-error.ts';
-import { alphaSourceFor, type KisSource } from './catalog.ts';
+import { alphaSourceFor, type FredSource, type KisSource } from './catalog.ts';
 
 export type PriceBar = {
   date: string;
@@ -68,6 +68,36 @@ export const parseAlphaVantageDaily = (input: unknown): PriceBar[] =>
 
 export const parseAlphaVantageFxDaily = (input: unknown): PriceBar[] =>
   parseOhlcSeries(input, 'Time Series FX (Daily)');
+
+export function parseFredCsv(input: string): PriceBar[] {
+  const prices = input.trim().split(/\r?\n/).slice(1).flatMap((line) => {
+    const [date, rawValue] = line.split(',');
+    const value = Number(rawValue);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) && rawValue !== '' && Number.isFinite(value) && value > 0
+      ? [{ date, open: value, high: value, low: value, close: value, volume: 0 }]
+      : [];
+  }).sort((a, b) => a.date.localeCompare(b.date));
+  if (!prices.length) throw new Error('FRED 응답에 유효한 일봉 데이터가 없습니다.');
+  return prices;
+}
+
+export class FredProvider implements MarketDataProvider {
+  private readonly source: FredSource;
+
+  constructor(source: FredSource) {
+    this.source = source;
+  }
+
+  async getHistoricalPrices(_symbol: string, start?: Date, end?: Date): Promise<PriceBar[]> {
+    const from = start ?? new Date((end?.getTime() ?? Date.now()) - 550 * 86_400_000);
+    const url = new URL('https://fred.stlouisfed.org/graph/fredgraph.csv');
+    url.search = new URLSearchParams({ id: this.source.series, cosd: from.toISOString().slice(0, 10),
+      coed: (end ?? new Date()).toISOString().slice(0, 10) }).toString();
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`FRED 시세 조회 실패 (${response.status})`);
+    return parseFredCsv(await response.text()).slice(-260);
+  }
+}
 
 export function parseAlphaVantageCryptoDaily(input: unknown): PriceBar[] {
   const body = bodyOf(input);
@@ -218,7 +248,7 @@ export class KisReadOnlyProvider implements MarketDataProvider {
     const from = start ?? new Date((end?.getTime() ?? Date.now()) - 550 * 86_400_000);
     let pageEnd = end ?? new Date();
     const prices = new Map<string, PriceBar>();
-    for (let page = 0; page < 3; page += 1) {
+    for (let page = 0; page < (start ? 1 : 3); page += 1) {
       const overseas = this.source.kind === 'OVERSEAS';
       const endpoint = overseas ? 'dailyprice'
         : this.source.kind === 'INDEX' ? 'inquire-daily-indexchartprice' : 'inquire-daily-itemchartprice';

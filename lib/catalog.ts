@@ -13,6 +13,8 @@ export type KisSource =
   | { kind: 'INDEX'; code: string }
   | { kind: 'OVERSEAS'; code: string; exchange: 'NAS' | 'NYS' | 'AMS' };
 
+export type FredSource = { series: 'DEXKOUS' | 'DEXJPUS' | 'DGS2' | 'DGS10' };
+
 type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string; kisSource?: KisSource };
 
 const asset = (
@@ -66,12 +68,19 @@ const kisOverseas = new Map<string, KisSource>(Object.entries({
   BTC: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
 } as const));
 
+const fred = new Map<string, FredSource>(Object.entries({
+  USDKRW: { series: 'DEXKOUS' }, USDJPY: { series: 'DEXJPUS' },
+  US2Y: { series: 'DGS2' }, US10Y: { series: 'DGS10' },
+} as const));
+
 export const alphaSourceFor = (symbol: string): AlphaSource =>
   catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
 
 export const kisSourceFor = (symbol: string): KisSource | null =>
   catalog.get(symbol.toUpperCase())?.kisSource ?? kisOverseas.get(symbol.toUpperCase())
     ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
+
+export const fredSourceFor = (symbol: string): FredSource | null => fred.get(symbol.toUpperCase()) ?? null;
 
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());
@@ -80,5 +89,5 @@ export const newsTickerFor = (symbol: string): string | null => {
 
 export const isCollectable = (symbol: string): boolean => {
   const kind = alphaSourceFor(symbol).kind;
-  return Boolean(kisSourceFor(symbol)) || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
+  return Boolean(kisSourceFor(symbol) || fredSourceFor(symbol)) || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
 };

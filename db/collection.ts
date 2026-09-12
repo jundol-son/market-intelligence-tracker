@@ -3,13 +3,14 @@ import { listAssets } from './assets';
 import { listPrices, upsertIndicators, upsertPrices } from './market-data';
 import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import { calculateIndicators } from '@/lib/indicators';
-import { alphaSourceFor, isCollectable, kisSourceFor } from '@/lib/catalog';
-import { AlphaVantageProvider, calculateTreasurySpread, KisReadOnlyProvider } from '@/lib/market-data';
+import { alphaSourceFor, fredSourceFor, isCollectable, kisSourceFor } from '@/lib/catalog';
+import { AlphaVantageProvider, calculateTreasurySpread, FredProvider, KisReadOnlyProvider } from '@/lib/market-data';
 
 export type ProviderCredentials = { alphaVantageApiKey?: string; kisAppKey?: string; kisAppSecret?: string };
 
 export function canCollectWith(symbol: string, credentials: ProviderCredentials): boolean {
   if (kisSourceFor(symbol) && credentials.kisAppKey && credentials.kisAppSecret) return true;
+  if (fredSourceFor(symbol)) return true;
   const kind = alphaSourceFor(symbol).kind;
   return Boolean(credentials.alphaVantageApiKey) && kind !== 'DERIVED' && kind !== 'UNAVAILABLE';
 }
@@ -19,11 +20,12 @@ export async function collectAssetPrice(asset: Asset, credentials: ProviderCrede
   if (!canCollectWith(asset.symbol, credentials)) throw new Error(`${asset.symbol} 수집에 필요한 공급자 키가 설정되지 않았습니다.`);
   const kisSource = kisSourceFor(asset.symbol);
   const useKis = Boolean(kisSource && credentials.kisAppKey && credentials.kisAppSecret);
+  const fredSource = fredSourceFor(asset.symbol);
   const provider = useKis
     ? new KisReadOnlyProvider(credentials.kisAppKey!, credentials.kisAppSecret!, kisSource!)
-    : new AlphaVantageProvider(credentials.alphaVantageApiKey!);
-  const providerName = useKis ? 'KIS' : 'ALPHA_VANTAGE';
-  const reservation = await reserveProviderCall(`${useKis ? 'KIS_API' : 'ALPHA_API'}:PRICE:${asset.symbol}`);
+    : fredSource ? new FredProvider(fredSource) : new AlphaVantageProvider(credentials.alphaVantageApiKey!);
+  const providerName = useKis ? 'KIS' : fredSource ? 'FRED' : 'ALPHA_VANTAGE';
+  const reservation = await reserveProviderCall(`${useKis ? 'KIS_API' : fredSource ? 'FRED_API' : 'ALPHA_API'}:PRICE:${asset.symbol}`);
   if (!reservation.reserved) return { called: false as const, reason: reservation.reason };
   try {
     const existing = await listPrices(asset.id);

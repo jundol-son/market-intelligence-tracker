@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { calculateIndicators } from './indicators.ts';
-import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, kisSourceFor, newsTickerFor } from './catalog.ts';
+import { DEFAULT_ASSETS, alphaSourceFor, fredSourceFor, isCollectable, kisSourceFor, newsTickerFor } from './catalog.ts';
 import {
   parseAlphaVantageCryptoDaily, parseAlphaVantageDaily, parseAlphaVantageFxDaily,
-  parseAlphaVantageScalar, calculateTreasurySpread, parseKisPriceBars, type PriceBar,
+  parseAlphaVantageScalar, calculateTreasurySpread, parseFredCsv, parseKisPriceBars, type PriceBar,
 } from './market-data.ts';
 import { isProviderDailyLimitError, PROVIDER_DAILY_LIMIT_MESSAGE } from './provider-error.ts';
 
@@ -39,6 +39,9 @@ assert.deepEqual(parseAlphaVantageScalar({ data: [
 ] })[0], { date: '2026-09-04', open: 4.25, high: 4.25, low: 4.25, close: 4.25, volume: 0 });
 assert.equal(DEFAULT_ASSETS.length, 23);
 assert.deepEqual(alphaSourceFor('USDKRW'), { kind: 'FX', from: 'USD', to: 'KRW' });
+assert.deepEqual(fredSourceFor('USDKRW'), { series: 'DEXKOUS' });
+assert.deepEqual(fredSourceFor('US10Y'), { series: 'DGS10' });
+assert.equal(fredSourceFor('SP500'), null);
 assert.deepEqual(kisSourceFor('KOSPI'), { kind: 'INDEX', code: '0001' });
 assert.deepEqual(kisSourceFor('005930'), { kind: 'DOMESTIC', code: '005930' });
 assert.deepEqual(kisSourceFor('SP500'), { kind: 'OVERSEAS', code: 'SPY', exchange: 'AMS' });
@@ -60,6 +63,9 @@ assert.deepEqual(parseKisPriceBars({ rt_cd: '0', output2: [{
   xymd: '20260908', open: '175.25', high: '178.10', low: '174.80', clos: '177.90', tvol: '1234567',
 }] }, 'OVERSEAS')[0], {
   date: '2026-09-08', open: 175.25, high: 178.1, low: 174.8, close: 177.9, volume: 1234567,
+});
+assert.deepEqual(parseFredCsv('observation_date,DGS2\n2026-09-07,\n2026-09-08,4.39\n')[0], {
+  date: '2026-09-08', open: 4.39, high: 4.39, low: 4.39, close: 4.39, volume: 0,
 });
 assert.ok(Math.abs(calculateTreasurySpread(
   [{ date: '2026-09-05', open: 4, high: 4, low: 4, close: 4, volume: 0 }],
