@@ -2,6 +2,7 @@ import { listAssetsForCollection } from './assets';
 import { collectAssetPrice, refreshTreasurySpread, type ProviderCredentials } from './collection';
 import { getDb } from './index';
 import { collectKisInsights } from './kis-insights';
+import { collectDailyNews } from './news';
 import { evaluateForecastResults, generateDailyReport } from './reports';
 import { recalculateScores } from './scoring';
 import { kisSourceFor } from '@/lib/catalog';
@@ -36,16 +37,23 @@ export async function runDailyKisUpdate(credentials: ProviderCredentials, now = 
       }
     }
     const insights = await collectKisInsights(credentials.kisAppKey, credentials.kisAppSecret, now);
-    if (prices.some((item) => item.status === 'SUCCESS')) {
-      await refreshTreasurySpread();
-      await recalculateScores();
+    let news: Awaited<ReturnType<typeof collectDailyNews>> | { status: 'FAILED'; error: string };
+    try {
+      news = await collectDailyNews(credentials.alphaVantageApiKey, now);
+    } catch (error) {
+      news = { status: 'FAILED', error: error instanceof Error ? error.message : '뉴스 수집 실패' };
+    }
+    await refreshTreasurySpread();
+    const scores = await recalculateScores();
+    if (scores.market) {
       await evaluateForecastResults();
       await generateDailyReport();
     }
-    const failures = [...prices.filter((item) => item.status === 'FAILED'), ...insights.results.filter((item) => item.status === 'FAILED')];
+    const failures = [...prices.filter((item) => item.status === 'FAILED'), ...insights.results.filter((item) => item.status === 'FAILED'),
+      ...(news.status === 'FAILED' ? [{ symbol: 'NEWS', status: 'FAILED' as const, error: news.error }] : [])];
     await getDb().prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status=?, error_message=? WHERE id=?`)
       .bind(failures.length ? 'PARTIAL' : 'SUCCESS', failures.map((item) => `${item.symbol}: ${item.error}`).join('; ') || null, job.id).run();
-    return { status: failures.length ? 'PARTIAL' : 'SUCCESS', prices, insights } as const;
+    return { status: failures.length ? 'PARTIAL' : 'SUCCESS', prices, insights, news } as const;
   } catch (error) {
     const message = error instanceof Error ? error.message : '일일 업데이트 실패';
     await getDb().prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status='FAILED', error_message=? WHERE id=?`).bind(message, job.id).run();

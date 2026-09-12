@@ -1,8 +1,11 @@
 import { getDb } from './index';
+import { listAssets } from './assets';
+import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import {
-  calculateNewsScore, detectDivergence, isDuplicateEvent, newsFingerprint,
+  AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, isDuplicateEvent, newsFingerprint,
   type NewsArticle,
 } from '@/lib/news';
+import { newsTickerFor } from '@/lib/catalog';
 
 type CandidateEvent = {
   id: number;
@@ -82,6 +85,31 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
       WHERE asset_id=? ORDER BY date DESC LIMIT 1)`).bind(score, assetId),
   ]);
   return { fetched: articles.length, created, score, divergence };
+}
+
+export async function collectDailyNews(apiKey?: string, now = new Date()) {
+  if (!apiKey) return { status: 'SKIPPED', reason: 'ALPHA_NOT_CONFIGURED' } as const;
+  const date = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+  const reservation = await reserveProviderCall(`ALPHA_API:NEWS:DAILY:${date}`, 24);
+  if (!reservation.reserved) return { status: 'SKIPPED', reason: reservation.reason } as const;
+  try {
+    const assets = (await listAssets()).flatMap((asset) => {
+      const ticker = asset.enabled ? newsTickerFor(asset.symbol) : null;
+      return ticker ? [{ asset, ticker }] : [];
+    });
+    const tickerNews = new Map((await new AlphaVantageNewsProvider(apiKey)
+      .getNewsForSymbols([...new Set(assets.map((item) => item.ticker))]))
+      .map((item) => [item.symbol, item.articles]));
+    const results = [] as Array<{ symbol: string; fetched: number; created: number; score: number; divergence: string | null }>;
+    for (const { asset, ticker } of assets) {
+      results.push({ symbol: asset.symbol, ...await saveNews(asset.id, tickerNews.get(ticker) ?? []) });
+    }
+    await finishProviderCall(reservation.id);
+    return { status: 'SUCCESS', fetched: results.reduce((sum, item) => sum + item.fetched, 0), results } as const;
+  } catch (error) {
+    await finishProviderCall(reservation.id, error);
+    throw error;
+  }
 }
 
 export async function listNews(limit = 50) {

@@ -116,6 +116,10 @@ export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArtic
   });
 }
 
+export function parseAlphaVantageNewsForSymbols(input: unknown, symbols: string[]) {
+  return symbols.map((symbol) => ({ symbol, articles: parseAlphaVantageNews(input, symbol) }));
+}
+
 const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'at', 'by', 'from']);
 export function titleTokens(title: string): Set<string> {
   return new Set(title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)
@@ -167,12 +171,21 @@ export class AlphaVantageNewsProvider implements NewsProvider {
   }
 
   async getNews(symbol: string): Promise<NewsArticle[]> {
+    return parseAlphaVantageNews(await this.request(symbol), symbol);
+  }
+
+  async getNewsForSymbols(symbols: string[]) {
+    const feed = await this.request();
+    return parseAlphaVantageNewsForSymbols(feed, symbols);
+  }
+
+  private async request(symbol?: string): Promise<unknown> {
     const url = new URL('https://www.alphavantage.co/query');
     url.search = new URLSearchParams({
-      function: 'NEWS_SENTIMENT', tickers: symbol, sort: 'LATEST', limit: '50', apikey: this.apiKey,
+      function: 'NEWS_SENTIMENT', ...(symbol ? { tickers: symbol } : {}), sort: 'LATEST', limit: '100', apikey: this.apiKey,
     }).toString();
     const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`뉴스 공급자 요청 실패 (${response.status})`);
-    return parseAlphaVantageNews(await response.json(), symbol);
+    return response.json();
   }
 }
