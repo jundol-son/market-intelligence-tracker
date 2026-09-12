@@ -5,7 +5,7 @@ import { collectKisInsights } from './kis-insights';
 import { collectDailyNews } from './news';
 import { evaluateForecastResults, generateDailyReport } from './reports';
 import { recalculateScores } from './scoring';
-import { kisSourceFor } from '@/lib/catalog';
+import { isCollectable } from '@/lib/catalog';
 
 const seoul = (now: Date) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Seoul', hour12: false, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
@@ -26,7 +26,7 @@ export async function runDailyKisUpdate(credentials: ProviderCredentials, now = 
   const job = await getDb().prepare(`INSERT INTO job_runs (job_name, status) VALUES (?, 'RUNNING') RETURNING id`).bind(jobName).first<{ id: number }>();
   if (!job) throw new Error('일일 업데이트 기록을 만들지 못했습니다.');
   try {
-    const assets = (await listAssetsForCollection()).filter((asset) => asset.enabled && kisSourceFor(asset.symbol));
+    const assets = (await listAssetsForCollection()).filter((asset) => asset.enabled && isCollectable(asset.symbol));
     const prices = [] as Array<{ symbol: string; status: 'SUCCESS' | 'FAILED' | 'SKIPPED'; error?: string }>;
     for (const asset of assets) {
       try {

@@ -10,7 +10,8 @@ export type AlphaSource =
 
 export type KisSource =
   | { kind: 'DOMESTIC'; code: string }
-  | { kind: 'INDEX'; code: string };
+  | { kind: 'INDEX'; code: string }
+  | { kind: 'OVERSEAS'; code: string; exchange: 'NAS' | 'NYS' | 'AMS' };
 
 type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string; kisSource?: KisSource };
 
@@ -51,11 +52,26 @@ export const DEFAULT_ASSETS: readonly CatalogAsset[] = [
 
 const catalog = new Map(DEFAULT_ASSETS.map((item) => [item.symbol, item]));
 
+const kisOverseas = new Map<string, KisSource>(Object.entries({
+  SP500: { kind: 'OVERSEAS', code: 'SPY', exchange: 'AMS' },
+  NASDAQ100: { kind: 'OVERSEAS', code: 'QQQ', exchange: 'NAS' },
+  SOX: { kind: 'OVERSEAS', code: 'SOXX', exchange: 'NAS' },
+  NVDA: { kind: 'OVERSEAS', code: 'NVDA', exchange: 'NAS' },
+  DXY: { kind: 'OVERSEAS', code: 'UUP', exchange: 'AMS' },
+  VIX: { kind: 'OVERSEAS', code: 'VIXY', exchange: 'AMS' },
+  HY_OAS: { kind: 'OVERSEAS', code: 'HYG', exchange: 'AMS' },
+  WTI: { kind: 'OVERSEAS', code: 'USO', exchange: 'AMS' },
+  BRENT: { kind: 'OVERSEAS', code: 'BNO', exchange: 'AMS' },
+  GOLD: { kind: 'OVERSEAS', code: 'GLD', exchange: 'AMS' },
+  BTC: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
+} as const));
+
 export const alphaSourceFor = (symbol: string): AlphaSource =>
   catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
 
 export const kisSourceFor = (symbol: string): KisSource | null =>
-  catalog.get(symbol.toUpperCase())?.kisSource ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
+  catalog.get(symbol.toUpperCase())?.kisSource ?? kisOverseas.get(symbol.toUpperCase())
+    ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
 
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());

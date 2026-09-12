@@ -26,7 +26,9 @@ export async function collectAssetPrice(asset: Asset, credentials: ProviderCrede
   const reservation = await reserveProviderCall(`${useKis ? 'KIS_API' : 'ALPHA_API'}:PRICE:${asset.symbol}`);
   if (!reservation.reserved) return { called: false as const, reason: reservation.reason };
   try {
-    const prices = await provider.getHistoricalPrices(asset.symbol);
+    const existing = await listPrices(asset.id);
+    const latest = existing.at(-1)?.date;
+    const prices = await provider.getHistoricalPrices(asset.symbol, latest ? new Date(`${latest}T00:00:00Z`) : undefined);
     await upsertPrices(asset.id, prices, providerName);
     const stored = await listPrices(asset.id);
     const benchmark = asset.benchmarkAssetId ? await listPrices(asset.benchmarkAssetId) : [];

@@ -42,10 +42,6 @@ export async function generateDailyReport() {
 
   const existing = await db.prepare(`SELECT id FROM reports
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
-  if (existing) {
-    await generateForecasts(existing.id);
-    return { id: existing.id, created: false };
-  }
 
   const metrics = await db.prepare(`SELECT a.id AS assetId, a.symbol, a.name, p.close AS price,
     i.return_1d AS dailyReturn, i.ma20, i.ma60, i.ma120, i.ma200,
@@ -55,20 +51,26 @@ export async function generateDailyReport() {
     s.risk_score AS riskScore, s.news_score AS newsScore,
     s.composite_score AS compositeScore, s.score_change_1d AS scoreChange
     FROM assets a
-    LEFT JOIN asset_prices p ON p.asset_id=a.id AND p.date=?
-    LEFT JOIN asset_indicators i ON i.asset_id=a.id AND i.date=?
-    LEFT JOIN asset_scores s ON s.asset_id=a.id AND s.date=?
+    LEFT JOIN asset_prices p ON p.id=(SELECT p2.id FROM asset_prices p2
+      WHERE p2.asset_id=a.id ORDER BY p2.date DESC LIMIT 1)
+    LEFT JOIN asset_indicators i ON i.asset_id=a.id AND i.date=p.date
+    LEFT JOIN asset_scores s ON s.asset_id=a.id AND s.date=p.date
     WHERE a.enabled=1 ORDER BY a.importance_weight DESC, a.symbol`)
-    .bind(market.date, market.date, market.date).all<MetricSnapshot>();
+    .all<MetricSnapshot>();
 
   const summary = reportSummary(market.marketRegime, market.overallScore, market.overallChange);
   // ponytail: one prepared insert per tracked asset; replace with a bulk import only if the watchlist approaches D1's per-invocation query limit.
   await db.batch([
-    db.prepare(`INSERT OR IGNORE INTO reports
+    db.prepare(`INSERT INTO reports
       (report_date, report_type, overall_score, global_score, korea_score, market_regime, summary)
-      VALUES (?, 'DAILY', ?, ?, ?, ?, ?)`)
+      VALUES (?, 'DAILY', ?, ?, ?, ?, ?)
+      ON CONFLICT(report_date, report_type) DO UPDATE SET overall_score=excluded.overall_score,
+        global_score=excluded.global_score, korea_score=excluded.korea_score,
+        market_regime=excluded.market_regime, summary=excluded.summary`)
       .bind(market.date, market.overallScore, market.globalScore, market.koreaScore, market.marketRegime, summary),
-    ...metrics.results.map((item) => db.prepare(`INSERT OR IGNORE INTO report_metrics
+    db.prepare(`DELETE FROM report_metrics WHERE report_id=(SELECT id FROM reports
+      WHERE report_date=? AND report_type='DAILY')`).bind(market.date),
+    ...metrics.results.map((item) => db.prepare(`INSERT INTO report_metrics
       (report_id, asset_id, symbol, name, price, daily_return, ma20, ma60, ma120, ma200,
         ma20_distance, ma60_distance, ma120_distance, ma200_distance, rsi,
         trend_score, momentum_score, risk_score, news_score, composite_score, score_change)
@@ -84,7 +86,7 @@ export async function generateDailyReport() {
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
   if (!report) throw new Error('리포트 저장에 실패했습니다.');
   await generateForecasts(report.id);
-  return { id: report.id, created: true };
+  return { id: report.id, created: !existing };
 }
 
 export async function listReports(limit = 90) {

@@ -160,12 +160,14 @@ export function parseKisPriceBars(input: unknown, kind: KisSource['kind']): Pric
   if (!Array.isArray(body.output2)) throw new Error('KIS 일봉 데이터가 응답에 없습니다.');
   const fields = kind === 'INDEX'
     ? ['bstp_nmix_oprc', 'bstp_nmix_hgpr', 'bstp_nmix_lwpr', 'bstp_nmix_prpr']
-    : ['stck_oprc', 'stck_hgpr', 'stck_lwpr', 'stck_clpr'];
+    : kind === 'OVERSEAS' ? ['open', 'high', 'low', 'clos']
+      : ['stck_oprc', 'stck_hgpr', 'stck_lwpr', 'stck_clpr'];
   const prices = body.output2.flatMap((raw) => {
     if (!raw || typeof raw !== 'object') return [];
     const row = raw as Record<string, unknown>;
     const [open, high, low, close] = fields.map((field) => Number(row[field]));
-    const price = { date: parseKisDate(row.stck_bsop_date), open, high, low, close, volume: Number(row.acml_vol ?? 0) };
+    const price = { date: parseKisDate(kind === 'OVERSEAS' ? row.xymd : row.stck_bsop_date),
+      open, high, low, close, volume: Number(kind === 'OVERSEAS' ? row.tvol ?? 0 : row.acml_vol ?? 0) };
     return price.date && [open, high, low, close, price.volume].every(Number.isFinite)
       && open > 0 && high > 0 && low > 0 && close > 0 && high >= low && price.volume >= 0 ? [price] : [];
   }).sort((a, b) => a.date.localeCompare(b.date));
@@ -217,12 +219,15 @@ export class KisReadOnlyProvider implements MarketDataProvider {
     let pageEnd = end ?? new Date();
     const prices = new Map<string, PriceBar>();
     for (let page = 0; page < 3; page += 1) {
-      const endpoint = this.source.kind === 'INDEX' ? 'inquire-daily-indexchartprice' : 'inquire-daily-itemchartprice';
-      const url = new URL(`https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/${endpoint}`);
-      const params: Record<string, string> = {
-        FID_COND_MRKT_DIV_CODE: this.source.kind === 'INDEX' ? 'U' : 'J', FID_INPUT_ISCD: this.source.code,
-        FID_INPUT_DATE_1: compactDate(from), FID_INPUT_DATE_2: compactDate(pageEnd), FID_PERIOD_DIV_CODE: 'D',
-      };
+      const overseas = this.source.kind === 'OVERSEAS';
+      const endpoint = overseas ? 'dailyprice'
+        : this.source.kind === 'INDEX' ? 'inquire-daily-indexchartprice' : 'inquire-daily-itemchartprice';
+      const area = overseas ? 'overseas-price' : 'domestic-stock';
+      const url = new URL(`https://openapi.koreainvestment.com:9443/uapi/${area}/v1/quotations/${endpoint}`);
+      const params: Record<string, string> = overseas
+        ? { AUTH: '', EXCD: this.source.exchange, SYMB: this.source.code, GUBN: '0', BYMD: compactDate(pageEnd), MODP: '1' }
+        : { FID_COND_MRKT_DIV_CODE: this.source.kind === 'INDEX' ? 'U' : 'J', FID_INPUT_ISCD: this.source.code,
+          FID_INPUT_DATE_1: compactDate(from), FID_INPUT_DATE_2: compactDate(pageEnd), FID_PERIOD_DIV_CODE: 'D' };
       if (this.source.kind === 'DOMESTIC') params.FID_ORG_ADJ_PRC = '0';
       url.search = new URLSearchParams(params).toString();
       let response: Response | undefined;
@@ -232,7 +237,8 @@ export class KisReadOnlyProvider implements MarketDataProvider {
         response = await fetch(url, {
           headers: {
             'content-type': 'application/json', authorization: `Bearer ${token}`, appkey: this.appKey,
-            appsecret: this.appSecret, tr_id: this.source.kind === 'INDEX' ? 'FHKUP03500100' : 'FHKST03010100', custtype: 'P',
+            appsecret: this.appSecret, tr_id: overseas ? 'HHDFS76240000'
+              : this.source.kind === 'INDEX' ? 'FHKUP03500100' : 'FHKST03010100', custtype: 'P',
           },
           signal: AbortSignal.timeout(15_000),
         });
