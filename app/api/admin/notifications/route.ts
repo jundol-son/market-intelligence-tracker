@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
-import { notificationAdminState, saveNotificationSettings, type NotificationEnv } from '@/db/notifications';
+import { notificationAdminState, saveEmailRecipients, saveNotificationSettings, type NotificationEnv } from '@/db/notifications';
 import { apiError, json, requireAdmin } from '@/lib/api';
-import { parseNotificationSettings } from '@/lib/notification';
+import { parseEmailRecipients, parseNotificationSettings } from '@/lib/notification';
 
 export async function GET(request: Request) {
   const denied = requireAdmin(request);
@@ -17,8 +17,10 @@ export async function PUT(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   try {
-    const settings = parseNotificationSettings(await request.json());
-    await saveNotificationSettings(env.DB, settings);
+    const input = await request.json();
+    const settings = parseNotificationSettings(input);
+    const recipients = parseEmailRecipients(input);
+    await Promise.all([saveNotificationSettings(env.DB, settings), saveEmailRecipients(env.DB, recipients)]);
     return json(await notificationAdminState(env as NotificationEnv));
   } catch (error) {
     return apiError(error);

@@ -34,7 +34,7 @@
 
 ## Phase 5
 
-- Alpha Vantage `NEWS_SENTIMENT` 자산별 수동 수집 + 평일 일일 1회 최신 뉴스 묶음 자동 수집
+- Alpha Vantage `NEWS_SENTIMENT` 자산별 수동 수집 + 6시간 구간별 최대 1회 최신 뉴스 묶음 자동 수집
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시
@@ -47,7 +47,7 @@
 - `GET /api/calendar`, 인증된 `/api/admin/calendar`, Calendar 화면
 - Reports 화면의 다가오는 주요 이벤트 노출
 
-초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록합니다. 일정 변경은 Admin 비밀번호 입력 후 Calendar에서 수정할 수 있으며 추가 API 토큰은 필요하지 않습니다.
+초기 일정은 BLS와 Federal Reserve의 2026년 공식 발표 캘린더를 기준으로 등록하며, BLS 공식 iCalendar를 하루 한 번 동기화합니다. 일정은 Admin 비밀번호 입력 후 Calendar에서 직접 보완할 수 있고 추가 API 토큰은 필요하지 않습니다.
 
 ## Phase 7
 
@@ -63,7 +63,7 @@ Forecast는 Daily Report 생성 시 한 번 저장되며 이후 같은 리포트
 
 - Telegram 짧은 요약과 `/market`, `/global`, `/korea`, `/watch`, `/news`, `/events`, ticker 명령
 - 무료 Resend HTTP API 또는 Cloudflare Email binding 기반 상세 리포트
-- 채널별 활성 상태·발송 시각·시간대 Admin 설정
+- 채널별 활성 상태·발송 시각·시간대와 Email 수신인 Admin 설정
 - 15분 Cron 확인, 리포트별 중복 발송 방지, 최근 Job/발송 결과 기록
 - 비밀값 존재 여부만 Admin에 표시하며 실제 값은 Worker Secret으로만 보관
 
@@ -80,7 +80,7 @@ Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로
 
 - `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 23개를 API 호출 없이 중복 안전하게 등록
 - `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
-- Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 24시간 중복 호출 방지
+- Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 5시간 중복 호출 방지
 - KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Crypto, Treasury Yield, WTI, Brent, Gold 응답 형식 지원
 - US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
 - VIX·DXY·US 2Y·US 10Y의 추세/모멘텀은 상승을 위험 증가 방향으로 반전해 점수 계산
@@ -107,7 +107,7 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - KIS 조회 전용 API로 KOSPI·KOSDAQ 외국인/기관/개인 수급과 상승·하락 종목수 저장
 - 국내 주식·ETF의 외국인/기관/개인/프로그램 수급, PER/PBR, 외국인 소진율, 52주 위치, 위험 상태 저장
 - 숫자 나열 대신 오늘의 판단·근거·주의점·다음 확인사항을 첫 화면과 Email에 표시
-- 평일 16:10 KST 이후 KIS 일봉·판단 데이터·Alpha Vantage 최신 뉴스·점수·Daily Report를 하루 한 번 자동 갱신
+- 평일 16:10 KST 이후 KIS 일봉·판단 데이터·점수·Daily Report를 하루 한 번 자동 갱신
 - 기존 MA·RSI 외 5/20/60일 수익률, ATR%, 거래량 비율, MA20/60 괴리도를 Dashboard/Watchlist에 노출
 - 6자리 국내 종목코드는 별도 소스 코드 수정 없이 KIS 조회 대상으로 인식
 - 주문·정정·취소·잔고·계좌·hashkey API는 허용 목록 밖으로 유지
@@ -144,7 +144,7 @@ npm run build
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `TELEGRAM_WEBHOOK_SECRET` | 사용자 설정 필요 | Worker Secret |
-| `RESEND_API_KEY` / `EMAIL_TO` | 운영 설정 완료 | Resend 무료 Sending-only API Key + Worker Secret |
+| `RESEND_API_KEY` / `EMAIL_TO` | 운영 설정 완료 | Resend 무료 Sending-only API Key + 기존 수신인 fallback Worker Secret; 추가 수신인은 Admin에서 D1 관리 |
 | `EMAIL_FROM` | 선택 | 미설정 시 Resend 테스트 발신자 사용; 자체 도메인 연결 시 설정 |
 
 비밀값의 실제 내용은 README, 커밋, 이슈에 기록하지 않습니다. 변경 이력과 다음 작업은 로컬 작업공간 루트의 `CODEX_PROGRESS.md`에 누적합니다.
@@ -163,8 +163,8 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 ## 무료 플랜 주의사항
 
-가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자동 뉴스는 개별 자산마다 호출하지 않고 하루 1회 최신 100건을 받아 응답의 ticker sentiment를 관심 자산에 배분합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 화면의 잔여 횟수는 이 앱의 기록만 반영하므로 같은 키를 로컬·다른 앱에서 쓴 호출은 포함하지 않습니다. 공급자가 실제 일일 한도 초과를 반환하면 해당 기록을 감지해 24시간 추가 호출을 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
+가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자동 뉴스는 개별 자산마다 호출하지 않고 6시간 구간별 최대 1회(하루 최대 4회) 최신 100건을 받아 응답의 ticker sentiment를 관심 자산에 배분합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 화면의 잔여 횟수는 이 앱의 기록만 반영하므로 같은 키를 로컬·다른 앱에서 쓴 호출은 포함하지 않습니다. 공급자가 실제 일일 한도 초과를 반환하면 해당 기록을 감지해 24시간 추가 호출을 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
 
-KIS는 KOSPI·KOSDAQ·005930·000660·091160의 일봉 조회에만 사용합니다. 한 종목당 최대 3페이지에서 최신 260개를 저장하고 18시간 중복 호출을 막습니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
+KIS는 지원되는 국내 지수·주식·ETF와 해외 주식·ETF의 조회 전용 시세 수집에 우선 사용합니다. 한 종목당 최신 일봉을 저장하고 18시간 중복 호출을 막으며, 거시 지표는 무료 FRED·Alpha Vantage fallback을 사용합니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
 
-알림 Cron은 15분마다 D1 설정을 확인하고 동일 리포트·채널의 성공 이력이 있으면 건너뜁니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고, 무료 Resend HTTPS API(3,000건/월·100건/일) fallback을 사용합니다. 운영 환경에는 `RESEND_API_KEY`·`EMAIL_TO` Worker Secret이 등록되어 있으며 Email은 평일 17:00(Asia/Seoul)에 활성화되어 있습니다.
+Cron은 15분마다 알림 시각을 확인하고, 뉴스는 6시간 구간별 최대 1회, BLS 경제 캘린더는 하루 1회 갱신합니다. 동일 리포트·채널의 성공 이력이 있으면 메일을 중복 발송하지 않습니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고 무료 Resend HTTPS API를 사용하며, `EMAIL_TO`의 기존 주소와 Admin에서 저장한 추가 수신인에게 함께 발송합니다.

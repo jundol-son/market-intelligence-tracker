@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  emailMessage, notificationDue, parseNotificationSettings, telegramCommandMessage, telegramMessage,
+  emailMessage, notificationDue, parseEmailRecipients, parseNotificationSettings, telegramCommandMessage, telegramMessage,
   type NotificationPayload,
 } from './notification.ts';
 
@@ -20,6 +20,9 @@ const settings = parseNotificationSettings({ settings: [
 ] });
 assert.equal(settings.length, 2);
 assert.throws(() => parseNotificationSettings({ settings: [] }));
+assert.deepEqual(parseEmailRecipients({ recipients: [' First@Example.com ', 'first@example.com', 'two@example.com'] }),
+  ['first@example.com', 'two@example.com']);
+assert.throws(() => parseEmailRecipients({ recipients: ['not-an-email'] }), /올바르지/);
 
 assert.equal(notificationDue(new Date('2026-09-07T23:00:00Z'), '08:00', 'Asia/Seoul').due, true);
 assert.equal(notificationDue(new Date('2026-09-07T22:59:00Z'), '08:00', 'Asia/Seoul').due, false);

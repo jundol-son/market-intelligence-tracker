@@ -87,10 +87,11 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
   return { fetched: articles.length, created, score, divergence };
 }
 
-export async function collectDailyNews(apiKey?: string, now = new Date()) {
+export async function collectPeriodicNews(apiKey?: string, now = new Date()) {
   if (!apiKey) return { status: 'SKIPPED', reason: 'ALPHA_NOT_CONFIGURED' } as const;
   const date = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
-  const reservation = await reserveProviderCall(`ALPHA_API:NEWS:DAILY:${date}`, 24);
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: '2-digit', hour12: false }).format(now)) % 24;
+  const reservation = await reserveProviderCall(`ALPHA_API:NEWS:PERIODIC:${date}:${Math.floor(hour / 6)}`, 5);
   if (!reservation.reserved) return { status: 'SKIPPED', reason: reservation.reason } as const;
   try {
     const assets = (await listAssets()).flatMap((asset) => {

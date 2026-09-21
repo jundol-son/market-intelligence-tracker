@@ -40,6 +40,8 @@ export type NotificationPayload = {
   };
 };
 
+export type EmailRecipient = { id: number | null; email: string; source: 'DATABASE' | 'ENV' };
+
 function validTimezone(value: string) {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
@@ -65,6 +67,17 @@ export function parseNotificationSettings(input: unknown): NotificationSettingIn
   });
   if (new Set(parsed.map((item) => item.channel)).size !== NOTIFICATION_CHANNELS.length) throw new Error('알림 채널이 중복되었습니다.');
   return parsed;
+}
+
+export function parseEmailRecipients(input: unknown): string[] {
+  const recipients = (input as { recipients?: unknown })?.recipients;
+  if (!Array.isArray(recipients)) throw new Error('메일 수신인 목록이 필요합니다.');
+  const parsed = recipients.map((item) => {
+    const email = typeof item === 'string' ? item.trim().toLowerCase() : '';
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('메일 수신인 주소가 올바르지 않습니다.');
+    return email;
+  });
+  return [...new Set(parsed)];
 }
 
 export function notificationDue(now: Date, sendTime: string, timezone: string) {

@@ -24,6 +24,7 @@ import { isCollectable, newsTickerFor } from '@/lib/catalog';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 import { sparklinePoints } from '@/lib/sparkline';
+import { EmailRecipients, type EmailRecipient } from '@/components/email-recipients';
 
 type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
 type ProviderQuota = { limit: number; used: number; remaining: number; providerLimited: boolean };
@@ -120,6 +121,7 @@ type NotificationJob = {
 type NotificationState = {
   settings: NotificationSetting[];
   configured: Record<NotificationChannel, boolean>;
+  recipients: EmailRecipient[];
   jobs: NotificationJob[];
   deliveries: Array<{ id: number; channel: NotificationChannel; reportDate: string; status: string; errorMessage: string | null; sentAt: string | null }>;
 };
@@ -150,7 +152,7 @@ const emptyEventForm: EconomicEventInput = {
 };
 
 const emptyNotifications: NotificationState = {
-  settings: [], configured: { TELEGRAM: false, EMAIL: false }, jobs: [], deliveries: [],
+  settings: [], configured: { TELEGRAM: false, EMAIL: false }, recipients: [], jobs: [], deliveries: [],
 };
 const emptyKis: KisDashboard = { asOf: null, markets: [], assets: [], decision: { title: 'KIS 판단 데이터 수집 대기', stance: 'NEUTRAL', reasons: [], risks: [], nextChecks: [] } };
 
@@ -499,7 +501,10 @@ export default function Home() {
     setSavingNotifications(true);
     try {
       const data = await api<NotificationState>('/api/admin/notifications', {
-        method: 'PUT', body: JSON.stringify({ settings: notifications.settings }),
+        method: 'PUT', body: JSON.stringify({
+          settings: notifications.settings,
+          recipients: notifications.recipients.filter((item) => item.source === 'DATABASE').map((item) => item.email),
+        }),
       }, adminToken);
       setNotifications(data);
       setMessage('알림 시각과 활성 상태를 저장했습니다.');
@@ -871,6 +876,7 @@ function Admin({ assets, loading, token, collectingId, collectingNewsId, bootstr
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Telegram · Email 알림</h2><p className="mt-1 text-sm text-muted-foreground">매일 설정 시각 이후 최신 리포트를 채널별 한 번만 발송합니다.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onLoadNotifications} disabled={!token}>불러오기</Button><Button variant="outline" onClick={onSendNotifications} disabled={!token || sendingNotifications || !notifications.settings.some((item) => item.enabled)}>{sendingNotifications && <Loader2 className="animate-spin" />}지금 발송</Button><Button onClick={onSaveNotifications} disabled={!token || savingNotifications || notifications.settings.length === 0}>{savingNotifications && <Loader2 className="animate-spin" />}설정 저장</Button></div></div>
       {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : '무료 Resend: RESEND_API_KEY · EMAIL_TO (발신 도메인이 있으면 EMAIL_FROM)'}</p></article>)}</div>}
+      {notifications.settings.length > 0 && <EmailRecipients recipients={notifications.recipients} onChange={(recipients) => onNotifications({ ...notifications, recipients })} />}
       {notifications.jobs.length > 0 && <div className="mt-5 overflow-x-auto"><p className="mb-2 text-sm font-semibold">최근 작업</p><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>시작</TableHead><TableHead>오류</TableHead></TableRow></TableHeader><TableBody>{notifications.jobs.slice(0, 5).map((job) => <TableRow key={job.id}><TableCell>{job.jobName}</TableCell><TableCell><span className={`rounded-full px-2 py-1 text-xs font-semibold ${job.status === 'SUCCESS' ? 'bg-emerald-50 text-emerald-700' : job.status === 'FAILED' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'}`}>{job.status}</span></TableCell><TableCell className="whitespace-nowrap text-muted-foreground">{new Date(job.startedAt).toLocaleString()}</TableCell><TableCell className="max-w-80 text-xs text-rose-600">{job.errorMessage ?? '—'}</TableCell></TableRow>)}</TableBody></Table></div>}
     </section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">추적 자산</h2><p className="mt-1 text-sm text-muted-foreground">{assets.length}개 등록됨</p></div><Database className="size-5 text-muted-foreground" /></div>

@@ -1,7 +1,7 @@
 import { responseLevel } from '@/lib/forecast';
 import {
   emailMessage, notificationDue, telegramCommandMessage, telegramMessage,
-  type NotificationChannel, type NotificationPayload, type NotificationSettingInput,
+  type EmailRecipient, type NotificationChannel, type NotificationPayload, type NotificationSettingInput,
 } from '@/lib/notification';
 import { getKisDashboard } from './kis-insights';
 
@@ -36,9 +36,18 @@ async function settings(db: D1Database) {
   return result.results;
 }
 
+async function recipients(env: NotificationEnv): Promise<EmailRecipient[]> {
+  const rows = await env.DB.prepare('SELECT id, email FROM email_recipients ORDER BY email').all<{ id: number; email: string }>();
+  const items: EmailRecipient[] = rows.results.map((item) => ({ ...item, source: 'DATABASE' }));
+  const fallback = env.EMAIL_TO?.trim().toLowerCase();
+  if (fallback && !items.some((item) => item.email === fallback)) items.unshift({ id: null, email: fallback, source: 'ENV' });
+  return items;
+}
+
 export async function notificationAdminState(env: NotificationEnv) {
-  const [channelSettings, jobs, deliveries] = await Promise.all([
+  const [channelSettings, emailRecipients, jobs, deliveries] = await Promise.all([
     settings(env.DB),
+    recipients(env),
     env.DB.prepare(`SELECT id, job_name AS jobName, started_at AS startedAt,
       finished_at AS finishedAt, status, error_message AS errorMessage
       FROM job_runs ORDER BY id DESC LIMIT 20`).all(),
@@ -51,8 +60,9 @@ export async function notificationAdminState(env: NotificationEnv) {
     settings: channelSettings,
     configured: {
       TELEGRAM: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID && env.TELEGRAM_WEBHOOK_SECRET),
-      EMAIL: Boolean(env.EMAIL_TO && ((env.EMAIL && env.EMAIL_FROM) || env.RESEND_API_KEY)),
+      EMAIL: Boolean(emailRecipients.length && ((env.EMAIL && env.EMAIL_FROM) || env.RESEND_API_KEY)),
     },
+    recipients: emailRecipients,
     jobs: jobs.results,
     deliveries: deliveries.results,
   };
@@ -63,6 +73,13 @@ export async function saveNotificationSettings(db: D1Database, input: Notificati
   await db.batch(input.map((item) => db.prepare(`UPDATE notification_settings
     SET enabled=?, send_time=?, timezone=?, updated_at=CURRENT_TIMESTAMP WHERE channel=?`)
     .bind(item.enabled ? 1 : 0, item.sendTime, item.timezone, item.channel)));
+}
+
+export async function saveEmailRecipients(db: D1Database, emails: string[]) {
+  await db.batch([
+    db.prepare('DELETE FROM email_recipients'),
+    ...emails.map((email) => db.prepare('INSERT INTO email_recipients (email) VALUES (?)').bind(email)),
+  ]);
 }
 
 export async function latestNotificationPayload(db: D1Database, now = new Date()): Promise<NotificationPayload | null> {
@@ -110,20 +127,21 @@ async function sendTelegram(env: NotificationEnv, text: string) {
   if (!response.ok) throw new Error(`Telegram 발송에 실패했습니다. (${response.status})`);
 }
 
-async function deliver(channel: NotificationChannel, payload: NotificationPayload, env: NotificationEnv, reportUrl: string) {
+async function deliver(channel: NotificationChannel, payload: NotificationPayload, env: NotificationEnv, reportUrl: string, emailRecipients: string[]) {
   if (channel === 'TELEGRAM') return sendTelegram(env, telegramMessage(payload, reportUrl));
-  if (!env.EMAIL_TO) throw new Error('Email 수신 주소가 설정되지 않았습니다.');
+  if (!emailRecipients.length) throw new Error('Email 수신 주소가 설정되지 않았습니다.');
   const message = emailMessage(payload, reportUrl);
-  if (env.EMAIL && env.EMAIL_FROM) return env.EMAIL.send({ from: env.EMAIL_FROM, to: env.EMAIL_TO, ...message });
+  if (env.EMAIL && env.EMAIL_FROM) return Promise.all(emailRecipients.map((to) => env.EMAIL!.send({ from: env.EMAIL_FROM!, to, ...message })));
   if (!env.RESEND_API_KEY) throw new Error('무료 Email API 키가 설정되지 않았습니다.');
-  const response = await fetch('https://api.resend.com/emails', {
+  const responses = await Promise.all(emailRecipients.map((to) => fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'user-agent': 'market-intelligence-tracker/1.0' },
-    body: JSON.stringify({ from: env.EMAIL_FROM ?? 'Market Intelligence <onboarding@resend.dev>', to: [env.EMAIL_TO], ...message }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({})) as { message?: string };
-    throw new Error(`Email 발송 실패 (${response.status}): ${error.message ?? '응답 오류'}`);
+    body: JSON.stringify({ from: env.EMAIL_FROM ?? 'Market Intelligence <onboarding@resend.dev>', to: [to], ...message }),
+  })));
+  const failed = responses.find((response) => !response.ok);
+  if (failed) {
+    const error = await failed.json().catch(() => ({})) as { message?: string };
+    throw new Error(`Email 발송 실패 (${failed.status}): ${error.message ?? '응답 오류'}`);
   }
 }
 
@@ -141,6 +159,7 @@ export async function runNotifications(env: NotificationEnv, options: {
     const payload = await latestNotificationPayload(env.DB, now);
     if (!payload) throw new Error('발송할 Daily Report가 없습니다.');
     const reportUrl = `${(options.baseUrl ?? env.PUBLIC_APP_URL ?? 'https://market-intelligence-tracker.sjsuk321.workers.dev').replace(/\/$/, '')}/`;
+    const emailRecipients = (await recipients(env)).map((item) => item.email);
     const results: Array<{ channel: NotificationChannel; status: 'SENT' | 'FAILED' | 'SKIPPED'; error?: string }> = [];
     for (const setting of await settings(env.DB)) {
       if (!setting.enabled) continue;
@@ -158,7 +177,7 @@ export async function runNotifications(env: NotificationEnv, options: {
         VALUES (?, ?, 'RUNNING') ON CONFLICT(setting_id, report_id) DO UPDATE SET
         status='RUNNING', error_message=NULL`).bind(setting.id, payload.reportId).run();
       try {
-        await deliver(setting.channel, payload, env, reportUrl);
+        await deliver(setting.channel, payload, env, reportUrl, emailRecipients);
         await env.DB.prepare(`UPDATE notification_deliveries SET status='SENT', sent_at=CURRENT_TIMESTAMP,
           error_message=NULL WHERE setting_id=? AND report_id=?`).bind(setting.id, payload.reportId).run();
         results.push({ channel: setting.channel, status: 'SENT' });

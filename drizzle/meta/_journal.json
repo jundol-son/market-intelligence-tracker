@@ -64,6 +64,13 @@
       "when": 1789135946491,
       "tag": "0008_omniscient_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789975039721,
+      "tag": "0009_amazing_swordsman",
+      "breakpoints": true
     }
   ]
 }

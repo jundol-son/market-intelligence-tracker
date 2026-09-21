@@ -232,10 +232,13 @@ export const economicEvents = sqliteTable('economic_events', {
   expectedImpact: real('expected_impact').notNull(),
   status: text().notNull().default('SCHEDULED'),
   sourceUrl: text('source_url'),
+  externalId: text('external_id'),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [uniqueIndex('economic_events_type_time_country_unique')
-  .on(table.eventType, table.scheduledAt, table.country)]);
+}, (table) => [
+  uniqueIndex('economic_events_type_time_country_unique').on(table.eventType, table.scheduledAt, table.country),
+  uniqueIndex('economic_events_external_id_unique').on(table.externalId),
+]);
 
 export const economicEventAssets = sqliteTable('economic_event_assets', {
   id: integer().primaryKey({ autoIncrement: true }),
@@ -271,6 +274,12 @@ export const jobRuns = sqliteTable('job_runs', {
   status: text().notNull(),
   errorMessage: text('error_message'),
 });
+
+export const emailRecipients = sqliteTable('email_recipients', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  email: text().notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('email_recipients_email_unique').on(table.email)]);
 
 export const kisSnapshots = sqliteTable('kis_snapshots', {
   id: integer().primaryKey({ autoIncrement: true }),
