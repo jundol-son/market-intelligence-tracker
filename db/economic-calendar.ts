@@ -3,7 +3,7 @@ import { getDb } from './index';
 
 export async function syncEconomicCalendar(now = new Date()) {
   const day = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
-  const jobName = `CALENDAR:BLS_OFFICIAL:${day}`;
+  const jobName = `CALENDAR:BLS_V2:${day}`;
   const prior = await getDb().prepare('SELECT status FROM job_runs WHERE job_name=? ORDER BY id DESC LIMIT 1')
     .bind(jobName).first<{ status: string }>();
   if (prior) return { status: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' } as const;
@@ -16,7 +16,7 @@ export async function syncEconomicCalendar(now = new Date()) {
     });
     if (!response.ok) {
       response = await fetch(`https://r.jina.ai/${BLS_CALENDAR_URL}`, {
-        headers: { accept: 'text/plain', 'x-no-cache': 'true' },
+        headers: { accept: 'text/plain' },
       });
     }
     if (!response.ok) throw new Error(`BLS 캘린더 요청 실패 (${response.status})`);
