@@ -14,6 +14,7 @@ export type KisSource =
   | { kind: 'OVERSEAS'; code: string; exchange: 'NAS' | 'NYS' | 'AMS' };
 
 export type FredSource = { series: 'DEXKOUS' | 'DEXJPUS' | 'DGS2' | 'DGS10' };
+export type YahooSource = { symbol: 'CL=F' | 'BZ=F' };
 
 type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string; kisSource?: KisSource };
 
@@ -43,8 +44,10 @@ export const DEFAULT_ASSETS: readonly CatalogAsset[] = [
   asset('US10Y2Y', 'US 10Y - 2Y Treasury Spread', 'RATE', 'GLOBAL', 'PCT', 10, { kind: 'DERIVED' }),
   asset('VIX', 'Volatility (VIXY proxy)', 'INDEX', 'GLOBAL', 'USD', 10, { kind: 'STOCK', symbol: 'VIXY' }, true, 'VIXY'),
   asset('HY_OAS', 'High Yield credit (HYG proxy; inverse to OAS)', 'CREDIT', 'GLOBAL', 'USD', 8, { kind: 'STOCK', symbol: 'HYG' }, true, 'HYG'),
-  asset('WTI', 'WTI crude oil', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'SCALAR', function: 'WTI', params: { interval: 'daily' } }),
-  asset('BRENT', 'Brent crude oil', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'SCALAR', function: 'BRENT', params: { interval: 'daily' } }),
+  asset('WTI', 'WTI futures (front month, USD/bbl)', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'UNAVAILABLE' }),
+  asset('BRENT', 'Brent futures (front month, USD/bbl)', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'UNAVAILABLE' }),
+  asset('USO', 'WTI ETF proxy (USO)', 'ETF', 'GLOBAL', 'USD', 3, { kind: 'STOCK', symbol: 'USO' }, true, 'USO'),
+  asset('BNO', 'Brent ETF proxy (BNO)', 'ETF', 'GLOBAL', 'USD', 3, { kind: 'STOCK', symbol: 'BNO' }, true, 'BNO'),
   asset('GOLD', 'Gold', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'SCALAR', function: 'GOLD_SILVER_HISTORY', params: { symbol: 'GOLD', interval: 'daily' } }),
   asset('BTC', 'Bitcoin / USD', 'CRYPTO', 'CRYPTO', 'USD', 5, { kind: 'CRYPTO', symbol: 'BTC', market: 'USD' }, true, 'CRYPTO:BTC'),
   asset('KR_FOREIGN_SPOT', 'Foreign investor KOSPI spot net buy (source connection required)', 'FLOW', 'KOSPI', 'KRW', 8, { kind: 'UNAVAILABLE' }, false),
@@ -62,8 +65,8 @@ const kisOverseas = new Map<string, KisSource>(Object.entries({
   DXY: { kind: 'OVERSEAS', code: 'UUP', exchange: 'AMS' },
   VIX: { kind: 'OVERSEAS', code: 'VIXY', exchange: 'AMS' },
   HY_OAS: { kind: 'OVERSEAS', code: 'HYG', exchange: 'AMS' },
-  WTI: { kind: 'OVERSEAS', code: 'USO', exchange: 'AMS' },
-  BRENT: { kind: 'OVERSEAS', code: 'BNO', exchange: 'AMS' },
+  USO: { kind: 'OVERSEAS', code: 'USO', exchange: 'AMS' },
+  BNO: { kind: 'OVERSEAS', code: 'BNO', exchange: 'AMS' },
   GOLD: { kind: 'OVERSEAS', code: 'GLD', exchange: 'AMS' },
   BTC: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
 } as const));
@@ -71,6 +74,10 @@ const kisOverseas = new Map<string, KisSource>(Object.entries({
 const fred = new Map<string, FredSource>(Object.entries({
   USDKRW: { series: 'DEXKOUS' }, USDJPY: { series: 'DEXJPUS' },
   US2Y: { series: 'DGS2' }, US10Y: { series: 'DGS10' },
+} as const));
+
+const yahoo = new Map<string, YahooSource>(Object.entries({
+  WTI: { symbol: 'CL=F' }, BRENT: { symbol: 'BZ=F' },
 } as const));
 
 export const alphaSourceFor = (symbol: string): AlphaSource =>
@@ -81,6 +88,7 @@ export const kisSourceFor = (symbol: string): KisSource | null =>
     ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
 
 export const fredSourceFor = (symbol: string): FredSource | null => fred.get(symbol.toUpperCase()) ?? null;
+export const yahooSourceFor = (symbol: string): YahooSource | null => yahoo.get(symbol.toUpperCase()) ?? null;
 
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());
@@ -89,5 +97,6 @@ export const newsTickerFor = (symbol: string): string | null => {
 
 export const isCollectable = (symbol: string): boolean => {
   const kind = alphaSourceFor(symbol).kind;
-  return Boolean(kisSourceFor(symbol) || fredSourceFor(symbol)) || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
+  return Boolean(kisSourceFor(symbol) || fredSourceFor(symbol) || yahooSourceFor(symbol))
+    || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
 };

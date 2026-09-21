@@ -24,7 +24,7 @@ export async function listAssetsForCollection(): Promise<Array<Asset & { lastAtt
     importance_weight AS importanceWeight, created_at AS createdAt, updated_at AS updatedAt,
     (SELECT MAX(j.started_at) FROM job_runs j
       WHERE j.job_name IN ('ALPHA_API:PRICE:' || assets.symbol, 'KIS_API:PRICE:' || assets.symbol,
-        'FRED_API:PRICE:' || assets.symbol)) AS lastAttemptAt
+        'FRED_API:PRICE:' || assets.symbol, 'YAHOO_API:PRICE:' || assets.symbol)) AS lastAttemptAt
     FROM assets ORDER BY lastAttemptAt IS NOT NULL, datetime(lastAttemptAt), importance_weight DESC, symbol`)
     .all<Asset & { lastAttemptAt: string | null }>();
   return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));
@@ -52,6 +52,16 @@ export async function createAsset(input: AssetInput): Promise<Asset> {
 export async function seedDefaultAssets() {
   const db = getDb();
   const before = await db.prepare('SELECT COUNT(*) AS count FROM assets').first<{ count: number }>();
+  const legacyProxies = [
+    { from: 'WTI', to: 'USO', oldName: 'WTI crude oil', name: 'WTI ETF proxy (USO)' },
+    { from: 'BRENT', to: 'BNO', oldName: 'Brent crude oil', name: 'Brent ETF proxy (BNO)' },
+  ];
+  await db.batch(legacyProxies.map((item) => db.prepare(`UPDATE assets
+    SET symbol=?, name=?, asset_type='ETF', updated_at=CURRENT_TIMESTAMP
+    WHERE symbol=? AND name=? AND NOT EXISTS (SELECT 1 FROM assets WHERE symbol=?)`)
+    .bind(item.to, item.name, item.from, item.oldName, item.to)));
+  await db.batch(legacyProxies.map((item) => db.prepare(`UPDATE report_metrics SET symbol=?, name=?
+    WHERE asset_id=(SELECT id FROM assets WHERE symbol=?)`).bind(item.to, item.name, item.to)));
   await db.batch(DEFAULT_ASSETS.map((input) => db.prepare(`INSERT OR IGNORE INTO assets
     (symbol, name, asset_type, market, currency, benchmark_asset_id, group_id, enabled, importance_weight)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(

@@ -10,9 +10,6 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   try {
-    if (!env.ALPHA_VANTAGE_API_KEY && !(env.KIS_APP_KEY && env.KIS_APP_SECRET)) {
-      return json({ error: '가격 공급자 API 키가 설정되지 않았습니다.' }, 503);
-    }
     const asset = await getAsset(pathId(request));
     if (!asset) return json({ error: '자산을 찾을 수 없습니다.' }, 404);
 

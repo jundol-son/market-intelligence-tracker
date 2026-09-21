@@ -78,10 +78,10 @@ Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로
 
 ## Phase 10
 
-- `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 23개를 API 호출 없이 중복 안전하게 등록
+- `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 25개를 API 호출 없이 중복 안전하게 등록
 - `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
 - Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 5시간 중복 호출 방지
-- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Crypto, Treasury Yield, WTI, Brent, Gold 응답 형식 지원
+- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Crypto, Treasury Yield, WTI·Brent 최근월물 선물, Gold 응답 형식 지원
 - US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
 - VIX·DXY·US 2Y·US 10Y의 추세/모멘텀은 상승을 위험 증가 방향으로 반전해 점수 계산
 
@@ -166,5 +166,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자동 뉴스는 개별 자산마다 호출하지 않고 6시간 구간별 최대 1회(하루 최대 4회) 최신 100건을 받아 응답의 ticker sentiment를 관심 자산에 배분합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 화면의 잔여 횟수는 이 앱의 기록만 반영하므로 같은 키를 로컬·다른 앱에서 쓴 호출은 포함하지 않습니다. 공급자가 실제 일일 한도 초과를 반환하면 해당 기록을 감지해 24시간 추가 호출을 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
 
 KIS는 지원되는 국내 지수·주식·ETF와 해외 주식·ETF의 조회 전용 시세 수집에 우선 사용합니다. 한 종목당 최신 일봉을 저장하고 18시간 중복 호출을 막으며, 거시 지표는 무료 FRED·Alpha Vantage fallback을 사용합니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
+
+WTI와 Brent는 무료 Yahoo Finance 연속 최근월물(`CL=F`, `BZ=F`) 일봉을 USD/배럴로 수집합니다. KIS의 USO·BNO 가격은 원유 선물이 아닌 ETF 주당 가격이므로 각각 별도 `USO`, `BNO` 자산으로 표시합니다.
 
 Cron은 15분마다 알림 시각을 확인하고, 뉴스는 6시간 구간별 최대 1회, BLS 경제 캘린더는 하루 1회 갱신합니다. 동일 리포트·채널의 성공 이력이 있으면 메일을 중복 발송하지 않습니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고 무료 Resend HTTPS API를 사용하며, `EMAIL_TO`의 기존 주소와 Admin에서 저장한 추가 수신인에게 함께 발송합니다.

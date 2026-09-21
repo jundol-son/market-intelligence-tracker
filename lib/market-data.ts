@@ -1,5 +1,5 @@
 import { providerError } from './provider-error.ts';
-import { alphaSourceFor, type FredSource, type KisSource } from './catalog.ts';
+import { alphaSourceFor, type FredSource, type KisSource, type YahooSource } from './catalog.ts';
 
 export type PriceBar = {
   date: string;
@@ -96,6 +96,61 @@ export class FredProvider implements MarketDataProvider {
     const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`FRED 시세 조회 실패 (${response.status})`);
     return parseFredCsv(await response.text()).slice(-260);
+  }
+}
+
+export function parseYahooChart(input: unknown): PriceBar[] {
+  if (!input || typeof input !== 'object') throw new Error('Yahoo futures response is invalid.');
+  const chart = (input as Record<string, unknown>).chart;
+  if (!chart || typeof chart !== 'object') throw new Error('Yahoo futures chart is missing.');
+  const chartBody = chart as Record<string, unknown>;
+  if (chartBody.error) throw new Error('Yahoo futures provider rejected the request.');
+  const result = Array.isArray(chartBody.result) ? chartBody.result[0] : null;
+  if (!result || typeof result !== 'object') throw new Error('Yahoo futures result is missing.');
+  const resultBody = result as Record<string, unknown>;
+  const timestamps = resultBody.timestamp;
+  const indicators = resultBody.indicators;
+  const quote = indicators && typeof indicators === 'object'
+    ? (indicators as Record<string, unknown>).quote : null;
+  const values = Array.isArray(quote) ? quote[0] : null;
+  if (!Array.isArray(timestamps) || !values || typeof values !== 'object') {
+    throw new Error('Yahoo futures daily data is missing.');
+  }
+  const rows = values as Record<string, unknown>;
+  const opens = Array.isArray(rows.open) ? rows.open : [];
+  const highs = Array.isArray(rows.high) ? rows.high : [];
+  const lows = Array.isArray(rows.low) ? rows.low : [];
+  const closes = Array.isArray(rows.close) ? rows.close : [];
+  const volumes = Array.isArray(rows.volume) ? rows.volume : [];
+  const prices = timestamps.flatMap((rawTimestamp, index) => {
+    const timestamp = Number(rawTimestamp);
+    const [open, high, low, close] = [opens[index], highs[index], lows[index], closes[index]].map(Number);
+    const volume = Number(volumes[index] ?? 0);
+    const date = Number.isFinite(timestamp) ? new Date(timestamp * 1_000).toISOString().slice(0, 10) : '';
+    return date && [open, high, low, close, volume].every(Number.isFinite)
+      && open > 0 && high > 0 && low > 0 && close > 0 && high >= low && volume >= 0
+      ? [{ date, open, high, low, close, volume }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date));
+  if (!prices.length) throw new Error('Yahoo futures response has no valid daily data.');
+  return prices;
+}
+
+export class YahooFuturesProvider implements MarketDataProvider {
+  private readonly source: YahooSource;
+
+  constructor(source: YahooSource) {
+    this.source = source;
+  }
+
+  async getHistoricalPrices(_symbol: string, start?: Date, end?: Date): Promise<PriceBar[]> {
+    const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${this.source.symbol}`);
+    url.search = new URLSearchParams({ range: '2y', interval: '1d', events: 'history' }).toString();
+    const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`Yahoo futures lookup failed (${response.status})`);
+    const from = start?.toISOString().slice(0, 10);
+    const to = end?.toISOString().slice(0, 10);
+    return parseYahooChart(await response.json())
+      .filter((price) => (!from || price.date >= from) && (!to || price.date <= to)).slice(-260);
   }
 }
 
