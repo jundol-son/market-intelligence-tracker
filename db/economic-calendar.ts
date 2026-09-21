@@ -3,7 +3,7 @@ import { getDb } from './index';
 
 export async function syncEconomicCalendar(now = new Date()) {
   const day = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
-  const jobName = `CALENDAR:BLS:${day}`;
+  const jobName = `CALENDAR:BLS_OFFICIAL:${day}`;
   const prior = await getDb().prepare('SELECT status FROM job_runs WHERE job_name=? ORDER BY id DESC LIMIT 1')
     .bind(jobName).first<{ status: string }>();
   if (prior) return { status: 'SKIPPED', reason: 'ALREADY_ATTEMPTED' } as const;
@@ -11,9 +11,14 @@ export async function syncEconomicCalendar(now = new Date()) {
     .bind(jobName).first<{ id: number }>();
   if (!job) throw new Error('캘린더 동기화 기록을 만들지 못했습니다.');
   try {
-    const response = await fetch(BLS_CALENDAR_URL, {
+    let response = await fetch(BLS_CALENDAR_URL, {
       headers: { accept: 'text/calendar', 'user-agent': 'Market Intelligence Tracker/1.0 (calendar sync)' },
     });
+    if (!response.ok) {
+      response = await fetch(`https://r.jina.ai/${BLS_CALENDAR_URL}`, {
+        headers: { accept: 'text/plain', 'x-no-cache': 'true' },
+      });
+    }
     if (!response.ok) throw new Error(`BLS 캘린더 요청 실패 (${response.status})`);
     const events = parseBlsCalendar(await response.text())
       .filter((event) => new Date(event.scheduledAt).getTime() >= now.getTime());
