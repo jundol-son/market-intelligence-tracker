@@ -90,10 +90,14 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
     .first<Omit<NotificationPayload, 'responseLevel' | 'metrics' | 'news' | 'events'>>();
   if (!report) return null;
   const [metricRows, forecast, newsRows, eventRows, kis] = await Promise.all([
-    db.prepare(`SELECT symbol, name, price, daily_return AS dailyReturn,
-      composite_score AS compositeScore, trend_score AS trendScore,
-      momentum_score AS momentumScore, risk_score AS riskScore, news_score AS newsScore
-      FROM report_metrics WHERE report_id=? ORDER BY composite_score DESC, symbol`).bind(report.reportId).all<NotificationPayload['metrics'][number]>(),
+    db.prepare(`SELECT a.symbol, a.name, m.price, m.daily_return AS dailyReturn,
+      m.composite_score AS compositeScore, m.trend_score AS trendScore,
+      m.momentum_score AS momentumScore, m.risk_score AS riskScore, m.news_score AS newsScore,
+      (SELECT p.date FROM asset_prices p WHERE p.asset_id=a.id AND p.date<=?
+        ORDER BY p.date DESC LIMIT 1) AS priceDate
+      FROM assets a LEFT JOIN report_metrics m ON m.asset_id=a.id AND m.report_id=?
+      WHERE a.enabled=1 ORDER BY m.composite_score DESC, a.symbol`)
+      .bind(report.reportDate, report.reportId).all<NotificationPayload['metrics'][number]>(),
     db.prepare(`SELECT up_probability AS upProbability, down_probability AS downProbability,
       expected_low AS expectedLow, expected_high AS expectedHigh,
       bull_probability AS bullProbability, base_probability AS baseProbability,

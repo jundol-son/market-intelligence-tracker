@@ -1,3 +1,5 @@
+import { summarizeDataFreshness } from './data-freshness.ts';
+
 export const NOTIFICATION_CHANNELS = ['TELEGRAM', 'EMAIL'] as const;
 export type NotificationChannel = typeof NOTIFICATION_CHANNELS[number];
 
@@ -22,6 +24,7 @@ export type NotificationPayload = {
   metrics: Array<{
     symbol: string;
     name: string;
+    priceDate?: string | null;
     price: number | null;
     dailyReturn: number | null;
     compositeScore: number | null;
@@ -97,6 +100,10 @@ const signed = (value: number | null) => value === null ? '—' : `${value > 0 ?
 
 export function telegramMessage(payload: NotificationPayload, reportUrl: string) {
   const markets = payload.metrics.slice(0, 4).map((item) => `${item.symbol.padEnd(8)} ${number(item.compositeScore)}`).join('\n');
+  const freshness = summarizeDataFreshness(payload.metrics.map((item) => ({ symbol: item.symbol, date: item.priceDate })), payload.reportDate);
+  const dataStatus = freshness.delayed.length || freshness.missing.length
+    ? `Data Check   지연 ${freshness.delayed.length} · 미연결 ${freshness.missing.length}`
+    : `Data Fresh   ${freshness.current.length}/${freshness.total}`;
   return [
     'DAILY MARKET SIGNAL', '',
     `Overall   ${number(payload.overallScore)}`,
@@ -105,7 +112,8 @@ export function telegramMessage(payload: NotificationPayload, reportUrl: string)
     markets, '',
     `Up Probability   ${number(payload.upProbability, '%')}`,
     payload.expectedLow === null ? '' : `Expected Range   ${signed(payload.expectedLow)} ~ ${signed(payload.expectedHigh)}`,
-    `Response   ${payload.responseLevel}`, '',
+    `Response   ${payload.responseLevel}`,
+    dataStatus, '',
     payload.events[0] ? `Top Risk   ${payload.events[0].eventName} (Impact ${payload.events[0].expectedImpact})` : 'Top Risk   예정된 주요 이벤트 없음', '',
     `View Full Report\n${reportUrl}`,
   ].filter((line) => line !== '').join('\n');
@@ -122,12 +130,16 @@ export function emailMessage(payload: NotificationPayload, reportUrl: string) {
     'NEWS', ...payload.news.map((item) => `${item.sentiment} · Impact ${item.impactScore} · ${item.title}`), '',
     'EVENTS', ...payload.events.map((item) => `Impact ${item.expectedImpact} · ${item.eventName} · ${item.scheduledAt}`),
   ].join('\n');
-  const rows = payload.metrics.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong><br>${escapeHtml(item.name)}</td><td>${number(item.price)}</td><td>${signed(item.dailyReturn)}</td><td>${number(item.trendScore)}</td><td>${number(item.momentumScore)}</td><td>${number(item.riskScore)}</td><td>${number(item.newsScore)}</td><td><strong>${number(item.compositeScore)}</strong></td></tr>`).join('');
+  const freshness = summarizeDataFreshness(payload.metrics.map((item) => ({ symbol: item.symbol, date: item.priceDate })), payload.reportDate);
+  const delayed = new Map(freshness.delayed.map((item) => [item.symbol, item.lagDays]));
+  const freshnessWarning = freshness.delayed.length || freshness.missing.length
+    ? `<section style="padding:14px 16px;border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;color:#78350f"><strong>데이터 기준일 확인</strong><p style="margin:6px 0 0">지연 ${freshness.delayed.length}개 · 미연결 ${freshness.missing.length}개${freshness.delayed.length ? ` · ${escapeHtml(freshness.delayed.slice(0, 8).map((item) => `${item.symbol} ${item.lagDays}일`).join(', '))}` : ''}</p></section>` : '';
+  const rows = payload.metrics.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong><br>${escapeHtml(item.name)}</td><td>${escapeHtml(item.priceDate ?? '—')}${delayed.has(item.symbol) ? `<br><strong style="color:#b45309">${delayed.get(item.symbol)}일 지연</strong>` : ''}</td><td>${number(item.price)}</td><td>${signed(item.dailyReturn)}</td><td>${number(item.trendScore)}</td><td>${number(item.momentumScore)}</td><td>${number(item.riskScore)}</td><td>${number(item.newsScore)}</td><td><strong>${number(item.compositeScore)}</strong></td></tr>`).join('');
   const news = payload.news.map((item) => `<li><strong>${escapeHtml(item.sentiment)}</strong> · Impact ${item.impactScore} · ${escapeHtml(item.title)}</li>`).join('') || '<li>주요 뉴스 없음</li>';
   const events = payload.events.map((item) => `<li>Impact ${item.expectedImpact} · ${escapeHtml(item.eventName)} · ${escapeHtml(item.scheduledAt)}</li>`).join('') || '<li>예정된 주요 이벤트 없음</li>';
   const kisMarkets = payload.kis?.markets.map((item) => `<tr><td><strong>${escapeHtml(item.symbol)}</strong></td><td>${item.breadthPercent?.toFixed(1) ?? '—'}%</td><td>${money(item.foreignNetAmount)}</td><td>${money(item.institutionNetAmount)}</td></tr>`).join('') ?? '';
   const kisDecision = payload.kis ? `<section style="padding:16px;border-radius:12px;background:#f1f5f9"><h2 style="margin-top:0">오늘의 판단 · ${escapeHtml(payload.kis.decision.title)}</h2>${payload.kis.decision.reasons.map((item) => `<p>• ${escapeHtml(item)}</p>`).join('')}<p><strong>확인할 것:</strong> ${escapeHtml(payload.kis.decision.nextChecks.join(' · '))}</p></section><h2>한국 수급 · 시장폭</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>시장</th><th>상승 비중</th><th>외국인</th><th>기관</th></tr></thead><tbody>${kisMarkets}</tbody></table>` : '';
-  const html = `<main style="font-family:Arial,sans-serif;color:#172033;max-width:760px;margin:auto"><h1>Daily Market Intelligence · ${escapeHtml(payload.reportDate)}</h1><p>${escapeHtml(payload.summary)}</p>${kisDecision}<h2>Market Score</h2><p>Overall <strong>${number(payload.overallScore)}</strong> · Global ${number(payload.globalScore)} · Korea ${number(payload.koreaScore)}</p><h2>Next Session</h2><p>Up ${number(payload.upProbability, '%')} · Range ${signed(payload.expectedLow)} ~ ${signed(payload.expectedHigh)} · ${escapeHtml(payload.responseLevel)}</p><h2>Watchlist</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>Asset</th><th>Price</th><th>1D</th><th>Trend</th><th>Momentum</th><th>Risk</th><th>News</th><th>Score</th></tr></thead><tbody>${rows}</tbody></table><h2>News</h2><ul>${news}</ul><h2>Upcoming Events</h2><ul>${events}</ul><p><a href="${escapeHtml(reportUrl)}">View full report</a></p></main>`;
+  const html = `<main style="font-family:Arial,sans-serif;color:#172033;max-width:760px;margin:auto"><h1>Daily Market Intelligence · ${escapeHtml(payload.reportDate)}</h1><p>${escapeHtml(payload.summary)}</p>${freshnessWarning}${kisDecision}<h2>Market Score</h2><p>Overall <strong>${number(payload.overallScore)}</strong> · Global ${number(payload.globalScore)} · Korea ${number(payload.koreaScore)}</p><h2>Next Session</h2><p>Up ${number(payload.upProbability, '%')} · Range ${signed(payload.expectedLow)} ~ ${signed(payload.expectedHigh)} · ${escapeHtml(payload.responseLevel)}</p><h2>Watchlist</h2><table style="border-collapse:collapse;width:100%"><thead><tr><th>Asset</th><th>기준일</th><th>Price</th><th>1D</th><th>Trend</th><th>Momentum</th><th>Risk</th><th>News</th><th>Score</th></tr></thead><tbody>${rows}</tbody></table><h2>News</h2><ul>${news}</ul><h2>Upcoming Events</h2><ul>${events}</ul><p><a href="${escapeHtml(reportUrl)}">View full report</a></p></main>`;
   return { subject: `Market Intelligence · ${payload.reportDate}`, text, html };
 }
 
