@@ -6,6 +6,8 @@ import { evaluateForecastResults, generateDailyReport } from './reports';
 import { recalculateScores } from './scoring';
 import { isCollectable } from '@/lib/catalog';
 
+const KEYLESS_MACRO_SYMBOLS = new Set(['USDKRW', 'USDJPY', 'US2Y', 'US10Y']);
+
 const seoul = (now: Date) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Seoul', hour12: false, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
 }).formatToParts(now).reduce<Record<string, string>>((result, part) => {
@@ -51,4 +53,20 @@ export async function runDailyKisUpdate(credentials: ProviderCredentials, now = 
     await getDb().prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status='FAILED', error_message=? WHERE id=?`).bind(message, job.id).run();
     throw error;
   }
+}
+
+export async function refreshKeylessMacro(credentials: ProviderCredentials) {
+  const assets = (await listAssetsForCollection())
+    .filter((asset) => asset.enabled && KEYLESS_MACRO_SYMBOLS.has(asset.symbol));
+  const results = [] as Array<{ symbol: string; status: 'SUCCESS' | 'FAILED' | 'SKIPPED'; error?: string }>;
+  for (const asset of assets) {
+    try {
+      const result = await collectAssetPrice(asset, credentials);
+      results.push({ symbol: asset.symbol, status: result.called ? 'SUCCESS' : 'SKIPPED' });
+    } catch (error) {
+      results.push({ symbol: asset.symbol, status: 'FAILED', error: error instanceof Error ? error.message : '수집 실패' });
+    }
+  }
+  await refreshTreasurySpread();
+  return results;
 }

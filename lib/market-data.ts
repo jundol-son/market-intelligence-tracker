@@ -1,5 +1,5 @@
 import { providerError } from './provider-error.ts';
-import { alphaSourceFor, type FredSource, type KisSource, type YahooSource } from './catalog.ts';
+import { alphaSourceFor, type KisSource, type TreasurySource, type YahooSource } from './catalog.ts';
 
 export type PriceBar = {
   date: string;
@@ -69,44 +69,57 @@ export const parseAlphaVantageDaily = (input: unknown): PriceBar[] =>
 export const parseAlphaVantageFxDaily = (input: unknown): PriceBar[] =>
   parseOhlcSeries(input, 'Time Series FX (Daily)');
 
-export function parseFredCsv(input: string): PriceBar[] {
-  const prices = input.trim().split(/\r?\n/).slice(1).flatMap((line) => {
-    const [date, rawValue] = line.split(',');
-    const value = Number(rawValue);
-    return /^\d{4}-\d{2}-\d{2}$/.test(date) && rawValue !== '' && Number.isFinite(value) && value > 0
-      ? [{ date, open: value, high: value, low: value, close: value, volume: 0 }]
-      : [];
+export function parseTreasuryCsv(input: string, term: TreasurySource['term']): PriceBar[] {
+  const [header = '', ...lines] = input.trim().split(/\r?\n/);
+  const columns = header.split(',').map((value) => value.replaceAll('"', '').trim());
+  const dateIndex = columns.indexOf('Date');
+  const valueIndex = columns.indexOf(term);
+  if (dateIndex < 0 || valueIndex < 0) throw new Error('미 재무부 금리 응답 형식이 올바르지 않습니다.');
+  const prices = lines.flatMap((line) => {
+    const values = line.split(',').map((value) => value.replaceAll('"', '').trim());
+    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(values[dateIndex] ?? '');
+    const value = Number(values[valueIndex]);
+    if (!match || !Number.isFinite(value) || value < 0) return [];
+    const date = `${match[3]}-${match[1]}-${match[2]}`;
+    return [{ date, open: value, high: value, low: value, close: value, volume: 0 }];
   }).sort((a, b) => a.date.localeCompare(b.date));
-  if (!prices.length) throw new Error('FRED 응답에 유효한 일봉 데이터가 없습니다.');
+  if (!prices.length) throw new Error('미 재무부 응답에 유효한 일별 금리가 없습니다.');
   return prices;
 }
 
-export class FredProvider implements MarketDataProvider {
-  private readonly source: FredSource;
+export class TreasuryProvider implements MarketDataProvider {
+  private readonly source: TreasurySource;
 
-  constructor(source: FredSource) {
+  constructor(source: TreasurySource) {
     this.source = source;
   }
 
   async getHistoricalPrices(_symbol: string, start?: Date, end?: Date): Promise<PriceBar[]> {
     const from = start ?? new Date((end?.getTime() ?? Date.now()) - 550 * 86_400_000);
-    const url = new URL('https://fred.stlouisfed.org/graph/fredgraph.csv');
-    url.search = new URLSearchParams({ id: this.source.series, cosd: from.toISOString().slice(0, 10),
-      coed: (end ?? new Date()).toISOString().slice(0, 10) }).toString();
-    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`FRED 시세 조회 실패 (${response.status})`);
-    return parseFredCsv(await response.text()).slice(-260);
+    const until = end ?? new Date();
+    const prices = new Map<string, PriceBar>();
+    for (let year = from.getUTCFullYear(); year <= until.getUTCFullYear(); year += 1) {
+      const url = new URL(`https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${year}/all`);
+      url.search = new URLSearchParams({ _format: 'csv', page: '', type: 'daily_treasury_yield_curve' }).toString();
+      const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0', accept: 'text/csv' }, signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) throw new Error(`미 재무부 금리 조회 실패 (${response.status})`);
+      parseTreasuryCsv(await response.text(), this.source.term).forEach((row) => prices.set(row.date, row));
+    }
+    const fromDate = from.toISOString().slice(0, 10);
+    const untilDate = until.toISOString().slice(0, 10);
+    return [...prices.values()].filter((row) => row.date >= fromDate && row.date <= untilDate)
+      .sort((a, b) => a.date.localeCompare(b.date)).slice(-260);
   }
 }
 
 export function parseYahooChart(input: unknown): PriceBar[] {
-  if (!input || typeof input !== 'object') throw new Error('Yahoo futures response is invalid.');
+  if (!input || typeof input !== 'object') throw new Error('Yahoo market data response is invalid.');
   const chart = (input as Record<string, unknown>).chart;
-  if (!chart || typeof chart !== 'object') throw new Error('Yahoo futures chart is missing.');
+  if (!chart || typeof chart !== 'object') throw new Error('Yahoo market data chart is missing.');
   const chartBody = chart as Record<string, unknown>;
-  if (chartBody.error) throw new Error('Yahoo futures provider rejected the request.');
+  if (chartBody.error) throw new Error('Yahoo market data provider rejected the request.');
   const result = Array.isArray(chartBody.result) ? chartBody.result[0] : null;
-  if (!result || typeof result !== 'object') throw new Error('Yahoo futures result is missing.');
+  if (!result || typeof result !== 'object') throw new Error('Yahoo market data result is missing.');
   const resultBody = result as Record<string, unknown>;
   const timestamps = resultBody.timestamp;
   const indicators = resultBody.indicators;
@@ -114,7 +127,7 @@ export function parseYahooChart(input: unknown): PriceBar[] {
     ? (indicators as Record<string, unknown>).quote : null;
   const values = Array.isArray(quote) ? quote[0] : null;
   if (!Array.isArray(timestamps) || !values || typeof values !== 'object') {
-    throw new Error('Yahoo futures daily data is missing.');
+    throw new Error('Yahoo daily market data is missing.');
   }
   const rows = values as Record<string, unknown>;
   const opens = Array.isArray(rows.open) ? rows.open : [];
@@ -131,11 +144,11 @@ export function parseYahooChart(input: unknown): PriceBar[] {
       && open > 0 && high > 0 && low > 0 && close > 0 && high >= low && volume >= 0
       ? [{ date, open, high, low, close, volume }] : [];
   }).sort((a, b) => a.date.localeCompare(b.date));
-  if (!prices.length) throw new Error('Yahoo futures response has no valid daily data.');
+  if (!prices.length) throw new Error('Yahoo response has no valid daily market data.');
   return prices;
 }
 
-export class YahooFuturesProvider implements MarketDataProvider {
+export class YahooProvider implements MarketDataProvider {
   private readonly source: YahooSource;
 
   constructor(source: YahooSource) {
@@ -146,7 +159,7 @@ export class YahooFuturesProvider implements MarketDataProvider {
     const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${this.source.symbol}`);
     url.search = new URLSearchParams({ range: '2y', interval: '1d', events: 'history' }).toString();
     const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Yahoo futures lookup failed (${response.status})`);
+    if (!response.ok) throw new Error(`Yahoo market data lookup failed (${response.status})`);
     const from = start?.toISOString().slice(0, 10);
     const to = end?.toISOString().slice(0, 10);
     return parseYahooChart(await response.json())

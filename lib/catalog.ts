@@ -13,8 +13,8 @@ export type KisSource =
   | { kind: 'INDEX'; code: string }
   | { kind: 'OVERSEAS'; code: string; exchange: 'NAS' | 'NYS' | 'AMS' };
 
-export type FredSource = { series: 'DEXKOUS' | 'DEXJPUS' | 'DGS2' | 'DGS10' };
-export type YahooSource = { symbol: 'CL=F' | 'BZ=F' };
+export type TreasurySource = { term: '2 Yr' | '10 Yr' };
+export type YahooSource = { symbol: 'KRW=X' | 'JPY=X' | 'CL=F' | 'BZ=F' };
 
 type CatalogAsset = AssetInput & { source: AlphaSource; newsTicker?: string; kisSource?: KisSource };
 
@@ -71,12 +71,12 @@ const kisOverseas = new Map<string, KisSource>(Object.entries({
   BTC: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
 } as const));
 
-const fred = new Map<string, FredSource>(Object.entries({
-  USDKRW: { series: 'DEXKOUS' }, USDJPY: { series: 'DEXJPUS' },
-  US2Y: { series: 'DGS2' }, US10Y: { series: 'DGS10' },
+const treasury = new Map<string, TreasurySource>(Object.entries({
+  US2Y: { term: '2 Yr' }, US10Y: { term: '10 Yr' },
 } as const));
 
 const yahoo = new Map<string, YahooSource>(Object.entries({
+  USDKRW: { symbol: 'KRW=X' }, USDJPY: { symbol: 'JPY=X' },
   WTI: { symbol: 'CL=F' }, BRENT: { symbol: 'BZ=F' },
 } as const));
 
@@ -87,7 +87,7 @@ export const kisSourceFor = (symbol: string): KisSource | null =>
   catalog.get(symbol.toUpperCase())?.kisSource ?? kisOverseas.get(symbol.toUpperCase())
     ?? (/^\d{6}$/.test(symbol) ? { kind: 'DOMESTIC', code: symbol } : null);
 
-export const fredSourceFor = (symbol: string): FredSource | null => fred.get(symbol.toUpperCase()) ?? null;
+export const treasurySourceFor = (symbol: string): TreasurySource | null => treasury.get(symbol.toUpperCase()) ?? null;
 export const yahooSourceFor = (symbol: string): YahooSource | null => yahoo.get(symbol.toUpperCase()) ?? null;
 
 export const newsTickerFor = (symbol: string): string | null => {
@@ -97,6 +97,6 @@ export const newsTickerFor = (symbol: string): string | null => {
 
 export const isCollectable = (symbol: string): boolean => {
   const kind = alphaSourceFor(symbol).kind;
-  return Boolean(kisSourceFor(symbol) || fredSourceFor(symbol) || yahooSourceFor(symbol))
+  return Boolean(kisSourceFor(symbol) || treasurySourceFor(symbol) || yahooSourceFor(symbol))
     || (kind !== 'DERIVED' && kind !== 'UNAVAILABLE');
 };

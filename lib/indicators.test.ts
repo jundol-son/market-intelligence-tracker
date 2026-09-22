@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { calculateIndicators } from './indicators.ts';
-import { DEFAULT_ASSETS, alphaSourceFor, fredSourceFor, isCollectable, kisSourceFor, newsTickerFor, yahooSourceFor } from './catalog.ts';
+import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, kisSourceFor, newsTickerFor, treasurySourceFor, yahooSourceFor } from './catalog.ts';
 import {
   parseAlphaVantageCryptoDaily, parseAlphaVantageDaily, parseAlphaVantageFxDaily,
-  parseAlphaVantageScalar, calculateTreasurySpread, parseFredCsv, parseKisPriceBars, parseYahooChart, type PriceBar,
+  parseAlphaVantageScalar, calculateTreasurySpread, parseKisPriceBars, parseTreasuryCsv, parseYahooChart, type PriceBar,
 } from './market-data.ts';
 import { isProviderDailyLimitError, PROVIDER_DAILY_LIMIT_MESSAGE } from './provider-error.ts';
 
@@ -39,9 +39,9 @@ assert.deepEqual(parseAlphaVantageScalar({ data: [
 ] })[0], { date: '2026-09-04', open: 4.25, high: 4.25, low: 4.25, close: 4.25, volume: 0 });
 assert.equal(DEFAULT_ASSETS.length, 25);
 assert.deepEqual(alphaSourceFor('USDKRW'), { kind: 'FX', from: 'USD', to: 'KRW' });
-assert.deepEqual(fredSourceFor('USDKRW'), { series: 'DEXKOUS' });
-assert.deepEqual(fredSourceFor('US10Y'), { series: 'DGS10' });
-assert.equal(fredSourceFor('SP500'), null);
+assert.deepEqual(treasurySourceFor('US10Y'), { term: '10 Yr' });
+assert.equal(treasurySourceFor('USDKRW'), null);
+assert.equal(treasurySourceFor('SP500'), null);
 assert.deepEqual(kisSourceFor('KOSPI'), { kind: 'INDEX', code: '0001' });
 assert.deepEqual(kisSourceFor('005930'), { kind: 'DOMESTIC', code: '005930' });
 assert.deepEqual(kisSourceFor('SP500'), { kind: 'OVERSEAS', code: 'SPY', exchange: 'AMS' });
@@ -50,6 +50,8 @@ assert.equal(kisSourceFor('WTI'), null);
 assert.deepEqual(kisSourceFor('USO'), { kind: 'OVERSEAS', code: 'USO', exchange: 'AMS' });
 assert.deepEqual(yahooSourceFor('WTI'), { symbol: 'CL=F' });
 assert.deepEqual(yahooSourceFor('BRENT'), { symbol: 'BZ=F' });
+assert.deepEqual(yahooSourceFor('USDKRW'), { symbol: 'KRW=X' });
+assert.deepEqual(yahooSourceFor('USDJPY'), { symbol: 'JPY=X' });
 assert.equal(isCollectable('KOSDAQ'), true);
 assert.equal(isCollectable('US10Y2Y'), false);
 assert.equal(newsTickerFor('BTC'), 'CRYPTO:BTC');
@@ -68,7 +70,7 @@ assert.deepEqual(parseKisPriceBars({ rt_cd: '0', output2: [{
 }] }, 'OVERSEAS')[0], {
   date: '2026-09-08', open: 175.25, high: 178.1, low: 174.8, close: 177.9, volume: 1234567,
 });
-assert.deepEqual(parseFredCsv('observation_date,DGS2\n2026-09-07,\n2026-09-08,4.39\n')[0], {
+assert.deepEqual(parseTreasuryCsv('Date,"2 Yr","10 Yr"\n09/08/2026,4.39,4.58\n', '2 Yr')[0], {
   date: '2026-09-08', open: 4.39, high: 4.39, low: 4.39, close: 4.39, volume: 0,
 });
 assert.deepEqual(parseYahooChart({ chart: { result: [{ timestamp: [1788825600], indicators: { quote: [{

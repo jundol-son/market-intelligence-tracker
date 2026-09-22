@@ -24,7 +24,8 @@ export async function listAssetsForCollection(): Promise<Array<Asset & { lastAtt
     importance_weight AS importanceWeight, created_at AS createdAt, updated_at AS updatedAt,
     (SELECT MAX(j.started_at) FROM job_runs j
       WHERE j.job_name IN ('ALPHA_API:PRICE:' || assets.symbol, 'KIS_API:PRICE:' || assets.symbol,
-        'FRED_API:PRICE:' || assets.symbol, 'YAHOO_API:PRICE:' || assets.symbol)) AS lastAttemptAt
+        'FRED_API:PRICE:' || assets.symbol, 'TREASURY_API:PRICE:' || assets.symbol,
+        'YAHOO_API:PRICE:' || assets.symbol)) AS lastAttemptAt
     FROM assets ORDER BY lastAttemptAt IS NOT NULL, datetime(lastAttemptAt), importance_weight DESC, symbol`)
     .all<Asset & { lastAttemptAt: string | null }>();
   return result.results.map((asset) => ({ ...asset, enabled: Boolean(asset.enabled) }));

@@ -3,14 +3,14 @@ import { listAssets } from './assets';
 import { listPrices, upsertIndicators, upsertPrices } from './market-data';
 import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import { calculateIndicators } from '@/lib/indicators';
-import { alphaSourceFor, fredSourceFor, isCollectable, kisSourceFor, yahooSourceFor } from '@/lib/catalog';
-import { AlphaVantageProvider, calculateTreasurySpread, FredProvider, KisReadOnlyProvider, YahooFuturesProvider } from '@/lib/market-data';
+import { alphaSourceFor, isCollectable, kisSourceFor, treasurySourceFor, yahooSourceFor } from '@/lib/catalog';
+import { AlphaVantageProvider, calculateTreasurySpread, KisReadOnlyProvider, TreasuryProvider, YahooProvider } from '@/lib/market-data';
 
 export type ProviderCredentials = { alphaVantageApiKey?: string; kisAppKey?: string; kisAppSecret?: string };
 
 export function canCollectWith(symbol: string, credentials: ProviderCredentials): boolean {
   if (kisSourceFor(symbol) && credentials.kisAppKey && credentials.kisAppSecret) return true;
-  if (fredSourceFor(symbol)) return true;
+  if (treasurySourceFor(symbol)) return true;
   if (yahooSourceFor(symbol)) return true;
   const kind = alphaSourceFor(symbol).kind;
   return Boolean(credentials.alphaVantageApiKey) && kind !== 'DERIVED' && kind !== 'UNAVAILABLE';
@@ -21,14 +21,15 @@ export async function collectAssetPrice(asset: Asset, credentials: ProviderCrede
   if (!canCollectWith(asset.symbol, credentials)) throw new Error(`${asset.symbol} 수집에 필요한 공급자 키가 설정되지 않았습니다.`);
   const kisSource = kisSourceFor(asset.symbol);
   const useKis = Boolean(kisSource && credentials.kisAppKey && credentials.kisAppSecret);
-  const fredSource = fredSourceFor(asset.symbol);
+  const treasurySource = treasurySourceFor(asset.symbol);
   const yahooSource = yahooSourceFor(asset.symbol);
   const provider = useKis
     ? new KisReadOnlyProvider(credentials.kisAppKey!, credentials.kisAppSecret!, kisSource!)
-    : fredSource ? new FredProvider(fredSource)
-      : yahooSource ? new YahooFuturesProvider(yahooSource) : new AlphaVantageProvider(credentials.alphaVantageApiKey!);
-  const providerName = useKis ? 'KIS' : fredSource ? 'FRED' : yahooSource ? 'YAHOO_FUTURES' : 'ALPHA_VANTAGE';
-  const reservation = await reserveProviderCall(`${useKis ? 'KIS_API' : fredSource ? 'FRED_API' : yahooSource ? 'YAHOO_API' : 'ALPHA_API'}:PRICE:${asset.symbol}`);
+    : treasurySource ? new TreasuryProvider(treasurySource)
+      : yahooSource ? new YahooProvider(yahooSource) : new AlphaVantageProvider(credentials.alphaVantageApiKey!);
+  const providerName = useKis ? 'KIS' : treasurySource ? 'US_TREASURY'
+    : yahooSource ? (asset.assetType === 'FX' ? 'YAHOO_FX' : 'YAHOO_FUTURES') : 'ALPHA_VANTAGE';
+  const reservation = await reserveProviderCall(`${useKis ? 'KIS_API' : treasurySource ? 'TREASURY_API' : yahooSource ? 'YAHOO_API' : 'ALPHA_API'}:PRICE:${asset.symbol}`);
   if (!reservation.reserved) return { called: false as const, reason: reservation.reason };
   try {
     const existing = await listPrices(asset.id);
