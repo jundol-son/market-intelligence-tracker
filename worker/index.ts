@@ -3,15 +3,17 @@ import { runNotifications, type NotificationEnv } from '../db/notifications';
 import { refreshKeylessMacro, runDailyKisUpdate } from '../db/daily-update';
 import { collectPeriodicNews } from '../db/news';
 import { syncEconomicCalendar } from '../db/economic-calendar';
+import { scheduledCollectionTasks } from '../lib/schedule';
 
 export default {
   fetch: app.fetch,
   async scheduled(controller, env) {
     const now = new Date(controller.scheduledTime);
-    await syncEconomicCalendar(now).catch(() => undefined);
-    await refreshKeylessMacro({ alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY,
+    const tasks = scheduledCollectionTasks(now);
+    if (tasks.calendar) await syncEconomicCalendar(now).catch(() => undefined);
+    if (tasks.keylessMacro) await refreshKeylessMacro({ alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY,
       kisAppKey: env.KIS_APP_KEY, kisAppSecret: env.KIS_APP_SECRET }).catch(() => undefined);
-    await collectPeriodicNews(env.ALPHA_VANTAGE_API_KEY, now).catch(() => undefined);
+    if (tasks.news) await collectPeriodicNews(env.ALPHA_VANTAGE_API_KEY, now).catch(() => undefined);
     await runDailyKisUpdate({ alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY, kisAppKey: env.KIS_APP_KEY, kisAppSecret: env.KIS_APP_SECRET }, now).catch(() => undefined);
     await runNotifications(env, {
       now,

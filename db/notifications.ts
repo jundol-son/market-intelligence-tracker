@@ -156,6 +156,22 @@ export async function runNotifications(env: NotificationEnv, options: {
   jobName?: string;
 } = {}) {
   const now = options.now ?? new Date();
+  const channelSettings = await settings(env.DB);
+  const eligible = channelSettings.filter((setting) => setting.enabled
+    && (!options.dueOnly || notificationDue(now, setting.sendTime, setting.timezone).due));
+  if (!eligible.length) return { reportId: null, results: [] };
+  const latest = await env.DB.prepare(`SELECT id AS reportId FROM reports
+    ORDER BY report_date DESC, id DESC LIMIT 1`).first<{ reportId: number }>();
+  if (!latest) throw new Error('발송할 Daily Report가 없습니다.');
+  const results: Array<{ channel: NotificationChannel; status: 'SENT' | 'FAILED' | 'SKIPPED'; error?: string }> = [];
+  const pending = [] as SettingRow[];
+  for (const setting of eligible) {
+    const previous = await env.DB.prepare(`SELECT status FROM notification_deliveries
+      WHERE setting_id=? AND report_id=?`).bind(setting.id, latest.reportId).first<{ status: string }>();
+    if (previous?.status === 'SENT') results.push({ channel: setting.channel, status: 'SKIPPED' });
+    else pending.push(setting);
+  }
+  if (!pending.length) return { reportId: latest.reportId, results };
   const started = await env.DB.prepare(`INSERT INTO job_runs (job_name, status)
     VALUES (?, 'RUNNING') RETURNING id`).bind(options.jobName ?? 'NOTIFICATION').first<{ id: number }>();
   if (!started) throw new Error('Job 실행 기록을 만들지 못했습니다.');
@@ -164,19 +180,7 @@ export async function runNotifications(env: NotificationEnv, options: {
     if (!payload) throw new Error('발송할 Daily Report가 없습니다.');
     const reportUrl = `${(options.baseUrl ?? env.PUBLIC_APP_URL ?? 'https://market-intelligence-tracker.sjsuk321.workers.dev').replace(/\/$/, '')}/`;
     const emailRecipients = (await recipients(env)).map((item) => item.email);
-    const results: Array<{ channel: NotificationChannel; status: 'SENT' | 'FAILED' | 'SKIPPED'; error?: string }> = [];
-    for (const setting of await settings(env.DB)) {
-      if (!setting.enabled) continue;
-      if (options.dueOnly && !notificationDue(now, setting.sendTime, setting.timezone).due) {
-        results.push({ channel: setting.channel, status: 'SKIPPED' });
-        continue;
-      }
-      const previous = await env.DB.prepare(`SELECT status FROM notification_deliveries
-        WHERE setting_id=? AND report_id=?`).bind(setting.id, payload.reportId).first<{ status: string }>();
-      if (previous?.status === 'SENT') {
-        results.push({ channel: setting.channel, status: 'SKIPPED' });
-        continue;
-      }
+    for (const setting of pending) {
       await env.DB.prepare(`INSERT INTO notification_deliveries (setting_id, report_id, status)
         VALUES (?, ?, 'RUNNING') ON CONFLICT(setting_id, report_id) DO UPDATE SET
         status='RUNNING', error_message=NULL`).bind(setting.id, payload.reportId).run();

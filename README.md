@@ -170,4 +170,4 @@ KIS는 지원되는 국내 지수·주식·ETF와 해외 주식·ETF의 조회 �
 
 WTI와 Brent는 무료 Yahoo Finance 연속 최근월물(`CL=F`, `BZ=F`) 일봉을 USD/배럴로 수집합니다. KIS의 USO·BNO 가격은 원유 선물이 아닌 ETF 주당 가격이므로 각각 별도 `USO`, `BNO` 자산으로 표시합니다.
 
-Cron은 15분마다 알림 시각을 확인하고, 뉴스는 6시간 구간별 최대 1회, BLS 경제 캘린더는 하루 1회 갱신합니다. 동일 리포트·채널의 성공 이력이 있으면 메일을 중복 발송하지 않습니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고 무료 Resend HTTPS API를 사용하며, `EMAIL_TO`의 기존 주소와 Admin에서 저장한 추가 수신인에게 함께 발송합니다.
+Cron은 15분마다 알림 시각만 가볍게 확인합니다. 전체 알림 본문은 발송 대상이 있고 아직 보내지 않은 리포트일 때만 조회합니다. BLS 캘린더는 09:00 KST, 무료 환율·미 국채는 09:15 KST와 실패 재시도용 10:15 KST, 뉴스는 6시간마다 최대 두 번의 시도 시각에만 수집을 확인합니다. 동일 리포트·채널의 성공 이력이 있으면 메일을 중복 발송하지 않습니다. 현재 Cloudflare 계정의 Email Sending은 Workers Paid가 필요하므로 결제하지 않고 무료 Resend HTTPS API를 사용하며, `EMAIL_TO`의 기존 주소와 Admin에서 저장한 추가 수신인에게 함께 발송합니다.

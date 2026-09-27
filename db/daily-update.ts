@@ -1,4 +1,4 @@
-import { listAssetsForCollection } from './assets';
+import { listAssets, listAssetsForCollection } from './assets';
 import { collectAssetPrice, refreshTreasurySpread, type ProviderCredentials } from './collection';
 import { getDb } from './index';
 import { collectKisInsights } from './kis-insights';
@@ -56,17 +56,19 @@ export async function runDailyKisUpdate(credentials: ProviderCredentials, now = 
 }
 
 export async function refreshKeylessMacro(credentials: ProviderCredentials) {
-  const assets = (await listAssetsForCollection())
+  const assets = (await listAssets())
     .filter((asset) => asset.enabled && KEYLESS_MACRO_SYMBOLS.has(asset.symbol));
   const results = [] as Array<{ symbol: string; status: 'SUCCESS' | 'FAILED' | 'SKIPPED'; error?: string }>;
+  let treasuryUpdated = false;
   for (const asset of assets) {
     try {
       const result = await collectAssetPrice(asset, credentials);
       results.push({ symbol: asset.symbol, status: result.called ? 'SUCCESS' : 'SKIPPED' });
+      if (result.called && (asset.symbol === 'US2Y' || asset.symbol === 'US10Y')) treasuryUpdated = true;
     } catch (error) {
       results.push({ symbol: asset.symbol, status: 'FAILED', error: error instanceof Error ? error.message : '수집 실패' });
     }
   }
-  await refreshTreasurySpread();
+  if (treasuryUpdated) await refreshTreasurySpread();
   return results;
 }
