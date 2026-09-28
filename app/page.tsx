@@ -23,6 +23,7 @@ import type { AnalyticsState } from '@/lib/analytics';
 import { isCollectable, newsTickerFor } from '@/lib/catalog';
 import { summarizeDataFreshness } from '@/lib/data-freshness';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
+import { summarizeMarketChanges } from '@/lib/market-summary';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 import { sparklinePoints } from '@/lib/sparkline';
 import { EmailRecipients, type EmailRecipient } from '@/components/email-recipients';
@@ -725,6 +726,11 @@ function Dashboard({ assets, market, scores, kis, loading }: { assets: Asset[]; 
   const freshness = summarizeDataFreshness(assets.filter((asset) => asset.enabled)
     .map((asset) => ({ symbol: asset.symbol, date: marketBySymbol.get(asset.symbol)?.date })), today);
   const delayed = new Map(freshness.delayed.map((item) => [item.symbol, item.lagDays]));
+  const summary = summarizeMarketChanges(assets.map((asset) => {
+    const snapshot = marketBySymbol.get(asset.symbol);
+    return { ...asset, compositeScore: snapshot?.compositeScore ?? null, scoreChange1d: snapshot?.scoreChange1d ?? null, return1d: snapshot?.return1d ?? null };
+  }));
+  const assetTypeLabel: Record<string, string> = { INDEX: '지수', STOCK: '주식', ETF: 'ETF', FX: '환율', RATE: '금리', COMMODITY: '원자재', CRYPTO: '가상자산', CREDIT: '신용', FLOW: '수급', BREADTH: '시장폭' };
   const scoreCards = scores ? [
     { label: 'Overall Market', value: scores.overallScore, change: scores.overallChange, tone: 'text-emerald-600', bar: 'bg-emerald-500' },
     { label: 'Global Risk', value: scores.globalScore, change: scores.globalChange, tone: 'text-blue-600', bar: 'bg-blue-500' },
@@ -736,6 +742,10 @@ function Dashboard({ assets, market, scores, kis, loading }: { assets: Asset[]; 
   return <div className="min-w-0 space-y-5 sm:space-y-6">
     <section className="grid gap-4 md:grid-cols-3" aria-label="시장 점수">
       {scoreCards.map((score) => <article key={score.label} className="min-w-0 overflow-hidden rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium text-muted-foreground">{score.label}</p><div className="mt-2 flex items-baseline gap-2"><strong className="text-4xl font-semibold tracking-[-0.05em]">{score.value === null ? '—' : score.value.toFixed(0)}</strong><span className={`text-sm font-semibold ${score.tone}`}>{score.change === null ? '' : `${score.change > 0 ? '+' : ''}${score.change.toFixed(1)}`}</span></div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">{'sample' in score ? '예시' : scores?.marketRegime}</span></div><div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${score.bar}`} style={{ width: `${score.value ?? 0}%` }} /></div></article>)}
+    </section>
+    <section className="grid gap-4 xl:grid-cols-[1fr_1.4fr]" aria-label="오늘의 시장 변화 요약">
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><h2 className="font-semibold">오늘의 핵심 변화</h2><p className="mt-1 text-sm text-muted-foreground">점수 변화와 중요도를 함께 반영한 순위입니다.</p><div className="mt-4 space-y-3">{summary.keyChanges.length ? summary.keyChanges.map((item, index) => <div key={item.symbol} className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className="grid size-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-semibold">{index + 1}</span><div className="min-w-0"><strong className="block truncate text-sm">{item.symbol}</strong><span className="block truncate text-xs text-muted-foreground">{item.name}</span></div></div><span className={`shrink-0 text-sm font-semibold tabular-nums ${item.value >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.value > 0 ? '+' : ''}{item.value.toFixed(2)}{item.kind === 'SCORE' ? '점' : '%'}</span></div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">변화 데이터가 쌓이면 중요도 순으로 표시됩니다.</p>}</div></article>
+      <article className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><h2 className="font-semibold">자산군 상태</h2><p className="mt-1 text-sm text-muted-foreground">활성 자산의 중요도 가중 평균입니다.</p><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{summary.groups.map((group) => <div key={group.assetType} className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm">{assetTypeLabel[group.assetType] ?? group.assetType}</strong><span className="text-xs text-muted-foreground">{group.count}개</span></div><div className="mt-3 flex items-baseline justify-between gap-2"><strong className={`text-2xl tabular-nums ${(group.score ?? 50) >= 60 ? 'text-emerald-600' : (group.score ?? 50) <= 40 ? 'text-rose-600' : ''}`}>{group.score?.toFixed(0) ?? '—'}</strong><span className={`text-xs font-semibold tabular-nums ${(group.return1d ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>1D {group.return1d === null ? '—' : `${group.return1d > 0 ? '+' : ''}${group.return1d.toFixed(2)}%`}</span></div></div>)}</div></article>
     </section>
     {(freshness.delayed.length > 0 || freshness.missing.length > 0) && <section className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900"><AlertTriangle className="mt-0.5 size-5 shrink-0" /><div><h2 className="font-semibold">데이터 기준일 확인 필요</h2><p className="mt-1 text-sm leading-6">지연 {freshness.delayed.length}개 · 미연결 {freshness.missing.length}개{freshness.delayed.length > 0 ? ` · ${freshness.delayed.slice(0, 6).map((item) => `${item.symbol} ${item.lagDays}일`).join(', ')}` : ''}</p></div></section>}
     <section className="grid gap-4 xl:grid-cols-[1fr_1.5fr]">

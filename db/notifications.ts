@@ -90,9 +90,11 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
     .first<Omit<NotificationPayload, 'responseLevel' | 'metrics' | 'news' | 'events'>>();
   if (!report) return null;
   const [metricRows, forecast, newsRows, eventRows, kis] = await Promise.all([
-    db.prepare(`SELECT a.symbol, a.name, m.price, m.daily_return AS dailyReturn,
+    db.prepare(`SELECT a.symbol, a.name, a.asset_type AS assetType,
+      a.importance_weight AS importanceWeight, m.price, m.daily_return AS dailyReturn,
       m.composite_score AS compositeScore, m.trend_score AS trendScore,
       m.momentum_score AS momentumScore, m.risk_score AS riskScore, m.news_score AS newsScore,
+      m.score_change AS scoreChange1d,
       (SELECT p.date FROM asset_prices p WHERE p.asset_id=a.id AND p.date<=?
         ORDER BY p.date DESC LIMIT 1) AS priceDate
       FROM assets a LEFT JOIN report_metrics m ON m.asset_id=a.id AND m.report_id=?
