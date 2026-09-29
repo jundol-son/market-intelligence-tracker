@@ -3,7 +3,7 @@ import { listAssets } from './assets';
 import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import {
   AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, isDuplicateEvent, newsFingerprint,
-  type NewsArticle,
+  selectPeriodicNewsTarget, type NewsArticle,
 } from '@/lib/news';
 import { newsTickerFor } from '@/lib/catalog';
 
@@ -98,13 +98,11 @@ export async function collectPeriodicNews(apiKey?: string, now = new Date()) {
       const ticker = asset.enabled ? newsTickerFor(asset.symbol) : null;
       return ticker ? [{ asset, ticker }] : [];
     });
-    const tickerNews = new Map((await new AlphaVantageNewsProvider(apiKey)
-      .getNewsForSymbols([...new Set(assets.map((item) => item.ticker))]))
-      .map((item) => [item.symbol, item.articles]));
-    const results = [] as Array<{ symbol: string; fetched: number; created: number; score: number; divergence: string | null }>;
-    for (const { asset, ticker } of assets) {
-      results.push({ symbol: asset.symbol, ...await saveNews(asset.id, tickerNews.get(ticker) ?? []) });
-    }
+    const ticker = selectPeriodicNewsTarget([...new Set(assets.map((item) => item.ticker))], now);
+    if (!ticker) throw new Error('뉴스 수집 대상 자산이 없습니다.');
+    const articles = await new AlphaVantageNewsProvider(apiKey).getNews(ticker);
+    const results = await Promise.all(assets.filter((item) => item.ticker === ticker)
+      .map(async ({ asset }) => ({ symbol: asset.symbol, ...await saveNews(asset.id, articles) })));
     await finishProviderCall(reservation.id);
     return { status: 'SUCCESS', fetched: results.reduce((sum, item) => sum + item.fetched, 0), results } as const;
   } catch (error) {
