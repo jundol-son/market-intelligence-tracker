@@ -65,6 +65,12 @@ export default defineConfig(async ({ command }) => {
             ...(process.env.ALPHA_VANTAGE_API_KEY
               ? { ALPHA_VANTAGE_API_KEY: process.env.ALPHA_VANTAGE_API_KEY }
               : {}),
+            ...(process.env.NAVER_API_HUB_CLIENT_ID
+              ? { NAVER_API_HUB_CLIENT_ID: process.env.NAVER_API_HUB_CLIENT_ID }
+              : {}),
+            ...(process.env.NAVER_API_HUB_CLIENT_SECRET
+              ? { NAVER_API_HUB_CLIENT_SECRET: process.env.NAVER_API_HUB_CLIENT_SECRET }
+              : {}),
             ...(process.env.KIS_APP_KEY ? { KIS_APP_KEY: process.env.KIS_APP_KEY } : {}),
             ...(process.env.KIS_APP_SECRET ? { KIS_APP_SECRET: process.env.KIS_APP_SECRET } : {}),
           } : {},

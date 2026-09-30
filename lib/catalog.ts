@@ -80,6 +80,11 @@ const yahoo = new Map<string, YahooSource>(Object.entries({
   WTI: { symbol: 'CL=F' }, BRENT: { symbol: 'BZ=F' },
 } as const));
 
+const naverNewsQueries = new Map(Object.entries({
+  KOSPI: '코스피', KOSDAQ: '코스닥', '005930': '삼성전자',
+  '000660': 'SK하이닉스', '091160': 'KODEX 반도체',
+}));
+
 export const alphaSourceFor = (symbol: string): AlphaSource =>
   catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
 
@@ -94,6 +99,9 @@ export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());
   return item ? item.newsTicker ?? null : symbol;
 };
+
+export const naverNewsQueryFor = (symbol: string, name?: string): string | null =>
+  naverNewsQueries.get(symbol.toUpperCase()) ?? (/^\d{6}$/.test(symbol) && name?.trim() ? name.trim() : null);
 
 export const isCollectable = (symbol: string): boolean => {
   const kind = alphaSourceFor(symbol).kind;

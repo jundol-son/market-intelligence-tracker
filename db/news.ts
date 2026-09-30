@@ -2,10 +2,10 @@ import { getDb } from './index';
 import { listAssets } from './assets';
 import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import {
-  AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, isDuplicateEvent, newsFingerprint,
+  AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, newsFingerprint,
   selectPeriodicNewsTarget, type NewsArticle,
 } from '@/lib/news';
-import { newsTickerFor } from '@/lib/catalog';
+import { naverNewsQueryFor, newsTickerFor } from '@/lib/catalog';
 
 type CandidateEvent = {
   id: number;
@@ -105,6 +105,41 @@ export async function collectPeriodicNews(apiKey?: string, now = new Date()) {
       .map(async ({ asset }) => ({ symbol: asset.symbol, ...await saveNews(asset.id, articles) })));
     await finishProviderCall(reservation.id);
     return { status: 'SUCCESS', fetched: results.reduce((sum, item) => sum + item.fetched, 0), results } as const;
+  } catch (error) {
+    await finishProviderCall(reservation.id, error);
+    throw error;
+  }
+}
+
+export async function purgeExpiredNaverNews() {
+  const db = getDb();
+  await db.batch([
+    db.prepare(`DELETE FROM news_events WHERE datetime(event_time)<datetime('now', '-21 days')
+      AND EXISTS (SELECT 1 FROM news_sources s WHERE s.event_id=news_events.id AND s.source LIKE 'NAVER Search · %')
+      AND NOT EXISTS (SELECT 1 FROM news_sources s WHERE s.event_id=news_events.id AND s.source NOT LIKE 'NAVER Search · %')`),
+    db.prepare(`DELETE FROM news_sources WHERE source LIKE 'NAVER Search · %'
+      AND datetime(published_at)<datetime('now', '-21 days')`),
+  ]);
+}
+
+export async function collectPeriodicNaverNews(clientId?: string, clientSecret?: string, now = new Date()) {
+  await purgeExpiredNaverNews();
+  if (!clientId || !clientSecret) return { status: 'SKIPPED', reason: 'NAVER_NOT_CONFIGURED' } as const;
+  const assets = (await listAssets()).flatMap((asset) => {
+    const query = asset.enabled ? naverNewsQueryFor(asset.symbol, asset.name) : null;
+    return query ? [{ asset, query }] : [];
+  });
+  const target = selectPeriodicNewsTarget(assets, now);
+  if (!target) return { status: 'SKIPPED', reason: 'NO_NAVER_TARGET' } as const;
+  const date = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: '2-digit', hour12: false }).format(now)) % 24;
+  const reservation = await reserveProviderCall(`NAVER_API:NEWS:PERIODIC:${date}:${Math.floor(hour / 6)}`, 5);
+  if (!reservation.reserved) return { status: 'SKIPPED', reason: reservation.reason } as const;
+  try {
+    const articles = await new NaverNewsProvider(clientId, clientSecret).getNews(target.query);
+    const result = { symbol: target.asset.symbol, ...await saveNews(target.asset.id, articles) };
+    await finishProviderCall(reservation.id);
+    return { status: 'SUCCESS', fetched: result.fetched, results: [result] } as const;
   } catch (error) {
     await finishProviderCall(reservation.id, error);
     throw error;

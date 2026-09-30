@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, detectDivergence, isDuplicateEvent, parseAlphaVantageNews, selectPeriodicNewsTarget } from './news.ts';
+import { calculateNewsScore, detectDivergence, isDuplicateEvent, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -20,6 +20,16 @@ const targets = ['NVDA', 'SPY', 'CRYPTO:BTC'];
 const slot = 21_600_000;
 assert.deepEqual([0, 1, 2, 3].map((index) => selectPeriodicNewsTarget(targets, new Date(index * slot))), ['NVDA', 'SPY', 'CRYPTO:BTC', 'NVDA']);
 assert.equal(selectPeriodicNewsTarget([], new Date(0)), undefined);
+const naver = parseNaverNews({ items: [{
+  title: '<b>삼성전자</b>, 반도체 투자 확대', description: 'AI &amp; 반도체 생산을 늘립니다.',
+  originallink: 'https://news.example.kr/article/1', link: 'https://n.news.naver.com/article/1',
+  pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900',
+}] });
+assert.equal(naver[0].title, '삼성전자, 반도체 투자 확대');
+assert.equal(naver[0].summary, 'AI & 반도체 생산을 늘립니다.');
+assert.equal(naver[0].source, 'NAVER Search · news.example.kr');
+assert.equal(naver[0].sentiment, 'NEUTRAL');
+assert.equal(parseNaverNews({ items: [{ title: '잘못된 링크', originallink: 'http://', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' }] }).length, 0);
 assert.equal(parseAlphaVantageNews({ feed: [{
   title: 'Unrelated company merely mentions Nvidia', summary: 'Brief mention.', source: 'Example',
   url: 'https://example.com/mention', time_published: '20260906T100000',

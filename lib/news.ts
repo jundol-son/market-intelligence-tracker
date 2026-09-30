@@ -32,6 +32,11 @@ const number = (value: unknown, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 const text = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+const cleanNaverText = (value: unknown, max: number) => text(value, max * 2)
+  .replace(/<[^>]*>/g, '')
+  .replace(/&(amp|quot|apos|lt|gt|#39);/g, (entity) => ({
+    '&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>', '&#39;': "'",
+  })[entity] ?? entity).slice(0, max);
 
 const TOPIC_CATEGORY: Record<string, typeof NEWS_CATEGORIES[number]> = {
   earnings: 'Earnings', mergers_and_acquisitions: 'M&A', economy_monetary: 'Monetary Policy',
@@ -116,6 +121,34 @@ export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArtic
   });
 }
 
+export function parseNaverNews(input: unknown): NewsArticle[] {
+  if (!input || typeof input !== 'object' || !Array.isArray((input as Record<string, unknown>).items)) {
+    throw new Error('NAVER 뉴스 응답 형식이 올바르지 않습니다.');
+  }
+  return ((input as Record<string, unknown>).items as unknown[]).flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const row = raw as Record<string, unknown>;
+    const title = cleanNaverText(row.title, 300);
+    const summary = cleanNaverText(row.description, 1200) || title;
+    const sourceUrl = text(row.originallink, 1000) || text(row.link, 1000);
+    const published = Date.parse(text(row.pubDate, 80));
+    if (!title || !/^https?:\/\//i.test(sourceUrl) || !Number.isFinite(published)) return [];
+    let host: string;
+    try {
+      host = new URL(sourceUrl).hostname.replace(/^www\./, '');
+    } catch {
+      return [];
+    }
+    if (!host) return [];
+    return [{
+      title, summary, category: 'Other' as const, eventTime: new Date(published).toISOString(),
+      source: `NAVER Search · ${host}`, sourceUrl, sourceRank: sourceRank(host, sourceUrl),
+      sentiment: 'NEUTRAL' as const, sentimentScore: 0, impactScore: 40,
+      confidenceScore: 80, durationType: 'SHORT_TERM' as const, relevanceScore: 1,
+    }];
+  });
+}
+
 const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'at', 'by', 'from']);
 export function titleTokens(title: string): Set<string> {
   return new Set(title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)
@@ -183,5 +216,26 @@ export class AlphaVantageNewsProvider implements NewsProvider {
     const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`뉴스 공급자 요청 실패 (${response.status})`);
     return response.json();
+  }
+}
+
+export class NaverNewsProvider implements NewsProvider {
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+
+  constructor(clientId: string, clientSecret: string) {
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
+  }
+
+  async getNews(query: string): Promise<NewsArticle[]> {
+    const url = new URL('https://naverapihub.apigw.ntruss.com/search/v1/news');
+    url.search = new URLSearchParams({ query, display: '50', start: '1', sort: 'date', format: 'json' }).toString();
+    const response = await fetch(url, {
+      headers: { 'X-NCP-APIGW-API-KEY-ID': this.clientId, 'X-NCP-APIGW-API-KEY': this.clientSecret },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`NAVER 뉴스 공급자 요청 실패 (${response.status})`);
+    return parseNaverNews(await response.json());
   }
 }

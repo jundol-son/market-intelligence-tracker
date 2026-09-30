@@ -35,6 +35,7 @@
 ## Phase 5
 
 - Alpha Vantage `NEWS_SENTIMENT` 자산별 수동 수집 + 6시간 구간별 최대 1회 최신 뉴스 묶음 자동 수집
+- NAVER API HUB 국내 지수·주식·ETF 뉴스 검색과 21일 보관 만료 자동 정리
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시
@@ -141,6 +142,7 @@ npm run build
 | `ADMIN_PASSWORD` | 사용자 설정 필요 | 운영 Worker Secret; 소스·D1·브라우저 저장소에 보관하지 않음 |
 | `ADMIN_TOKEN` | 호환 유지 | 기존 운영 인증이 끊기지 않도록 임시 fallback으로만 사용 |
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
+| `NAVER_API_HUB_CLIENT_ID` / `NAVER_API_HUB_CLIENT_SECRET` | 발급·설정 필요 | NAVER API HUB 뉴스 검색 인증 정보; 로컬 `.dev.vars`, 운영 Worker Secret |
 | `KIS_APP_KEY` / `KIS_APP_SECRET` | 사용자 설정 완료 | 운영 Worker Secret; 조회 전용 시세 인증에만 사용 |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
@@ -158,7 +160,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 - Deploy command: `npx wrangler deploy --config dist/server/wrangler.json`
 - Non-production deploy: `npx wrangler versions upload --config dist/server/wrangler.json`
 - Build variable: `CLOUDFLARE_D1_DATABASE_ID=<생성한 D1 database ID>`
-- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, `KIS_APP_KEY`, `KIS_APP_SECRET`, Telegram 3종, `RESEND_API_KEY`, `EMAIL_TO`, 선택 `EMAIL_FROM` (`ADMIN_TOKEN`은 이전 값 호환용)
+- Worker secrets: `ADMIN_PASSWORD`, `ALPHA_VANTAGE_API_KEY`, `NAVER_API_HUB_CLIENT_ID`, `NAVER_API_HUB_CLIENT_SECRET`, `KIS_APP_KEY`, `KIS_APP_SECRET`, Telegram 3종, `RESEND_API_KEY`, `EMAIL_TO`, 선택 `EMAIL_FROM` (`ADMIN_TOKEN`은 이전 값 호환용)
 
 스키마 변경 배포 전 `npx wrangler d1 migrations apply DB --remote --config dist/server/wrangler.json`으로 새 migration을 원격 D1에 적용합니다. Cloudflare API 토큰을 GitHub 저장소에 넣는 방식은 사용하지 않습니다.
 

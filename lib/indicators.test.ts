@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { calculateIndicators } from './indicators.ts';
-import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, kisSourceFor, newsTickerFor, treasurySourceFor, yahooSourceFor } from './catalog.ts';
+import { DEFAULT_ASSETS, alphaSourceFor, isCollectable, kisSourceFor, naverNewsQueryFor, newsTickerFor, treasurySourceFor, yahooSourceFor } from './catalog.ts';
 import {
   parseAlphaVantageCryptoDaily, parseAlphaVantageDaily, parseAlphaVantageFxDaily,
   parseAlphaVantageScalar, calculateTreasurySpread, parseKisPriceBars, parseTreasuryCsv, parseYahooChart, type PriceBar,
@@ -57,6 +57,9 @@ assert.equal(isCollectable('US10Y2Y'), false);
 assert.equal(newsTickerFor('BTC'), 'CRYPTO:BTC');
 assert.equal(newsTickerFor('KOSDAQ'), null);
 assert.equal(newsTickerFor('005930'), null);
+assert.equal(naverNewsQueryFor('005930'), '삼성전자');
+assert.equal(naverNewsQueryFor('123456', '테스트 종목'), '테스트 종목');
+assert.equal(naverNewsQueryFor('NVDA', 'NVIDIA'), null);
 assert.equal(parseKisPriceBars({ rt_cd: '0', output2: [{
   stck_bsop_date: '20260908', stck_oprc: '70000', stck_hgpr: '71000', stck_lwpr: '69000',
   stck_clpr: '70500', acml_vol: '123456',

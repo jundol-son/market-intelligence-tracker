@@ -1,7 +1,7 @@
 import app from 'vinext/server/fetch-handler';
 import { runNotifications, type NotificationEnv } from '../db/notifications';
 import { refreshKeylessMacro, runDailyKisUpdate } from '../db/daily-update';
-import { collectPeriodicNews } from '../db/news';
+import { collectPeriodicNaverNews, collectPeriodicNews } from '../db/news';
 import { syncEconomicCalendar } from '../db/economic-calendar';
 import { scheduledCollectionTasks } from '../lib/schedule';
 
@@ -13,7 +13,10 @@ export default {
     if (tasks.calendar) await syncEconomicCalendar(now).catch(() => undefined);
     if (tasks.keylessMacro) await refreshKeylessMacro({ alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY,
       kisAppKey: env.KIS_APP_KEY, kisAppSecret: env.KIS_APP_SECRET }).catch(() => undefined);
-    if (tasks.news) await collectPeriodicNews(env.ALPHA_VANTAGE_API_KEY, now).catch(() => undefined);
+    if (tasks.news) {
+      await collectPeriodicNews(env.ALPHA_VANTAGE_API_KEY, now).catch(() => undefined);
+      await collectPeriodicNaverNews(env.NAVER_API_HUB_CLIENT_ID, env.NAVER_API_HUB_CLIENT_SECRET, now).catch(() => undefined);
+    }
     await runDailyKisUpdate({ alphaVantageApiKey: env.ALPHA_VANTAGE_API_KEY, kisAppKey: env.KIS_APP_KEY, kisAppSecret: env.KIS_APP_SECRET }, now).catch(() => undefined);
     await runNotifications(env, {
       now,

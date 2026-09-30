@@ -1,5 +1,7 @@
 # Copy to .dev.vars only if you replace the local Vite binding.
 ADMIN_TOKEN=replace-with-a-long-random-value
 ALPHA_VANTAGE_API_KEY=replace-with-your-free-key
+NAVER_API_HUB_CLIENT_ID=replace-with-your-naver-api-hub-client-id
+NAVER_API_HUB_CLIENT_SECRET=replace-with-your-naver-api-hub-client-secret
 KIS_APP_KEY=replace-with-your-kis-app-key
 KIS_APP_SECRET=replace-with-your-kis-app-secret
