@@ -128,6 +128,7 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - 모든 API 오류에 안정된 `code`·`retryable` 필드를 추가하고 입력·인증·충돌·공급자 제한·일시 장애·내부 오류별 HTTP 상태 적용
 - Forecast 확률을 자산별 과거 상승 빈도 baseline과 Brier score로 비교하고 월별 walk-forward 품질 표시
 - Forecast 표본 부족 경고와 확률 구간별 평균 예측·실제 상승률 calibration 표시
+- 새 운영 D1에도 기본 추적 자산과 benchmark를 비파괴 migration으로 자동 초기화
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 
