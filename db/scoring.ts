@@ -45,7 +45,9 @@ export async function recalculateScores() {
     i.ma20_slope AS ma20Slope, i.ma60_slope AS ma60Slope, i.rsi14, i.atr14,
     i.return_5d AS return5d, i.return_20d AS return20d,
     i.relative_strength AS relativeStrength,
-    (SELECT n.score FROM news_scores n WHERE n.asset_id=a.id ORDER BY n.date DESC LIMIT 1) AS newsScore
+    (SELECT n.score FROM news_scores n WHERE n.asset_id=a.id
+      AND date(n.date)>=date(p.date, '-3 days') AND date(n.date)<=date(p.date)
+      ORDER BY n.date DESC LIMIT 1) AS newsScore
     FROM assets a JOIN asset_prices p ON p.id=(SELECT p2.id FROM asset_prices p2
       WHERE p2.asset_id=a.id ORDER BY p2.date DESC LIMIT 1)
     JOIN asset_indicators i ON i.asset_id=a.id AND i.date=p.date WHERE a.enabled=1`).all<ScorableAsset>();

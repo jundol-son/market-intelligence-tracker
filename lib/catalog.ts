@@ -48,8 +48,8 @@ export const DEFAULT_ASSETS: readonly CatalogAsset[] = [
   asset('BRENT', 'Brent futures (front month, USD/bbl)', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'UNAVAILABLE' }),
   asset('USO', 'WTI ETF proxy (USO)', 'ETF', 'GLOBAL', 'USD', 3, { kind: 'STOCK', symbol: 'USO' }, true, 'USO'),
   asset('BNO', 'Brent ETF proxy (BNO)', 'ETF', 'GLOBAL', 'USD', 3, { kind: 'STOCK', symbol: 'BNO' }, true, 'BNO'),
-  asset('GOLD', 'Gold', 'COMMODITY', 'GLOBAL', 'USD', 5, { kind: 'SCALAR', function: 'GOLD_SILVER_HISTORY', params: { symbol: 'GOLD', interval: 'daily' } }),
-  asset('BTC', 'Bitcoin / USD', 'CRYPTO', 'CRYPTO', 'USD', 5, { kind: 'CRYPTO', symbol: 'BTC', market: 'USD' }, true, 'CRYPTO:BTC'),
+  asset('GLD', 'Gold ETF proxy (GLD)', 'ETF', 'GLOBAL', 'USD', 5, { kind: 'STOCK', symbol: 'GLD' }, true, 'GLD'),
+  asset('IBIT', 'Bitcoin ETF proxy (IBIT)', 'ETF', 'GLOBAL', 'USD', 5, { kind: 'STOCK', symbol: 'IBIT' }, true, 'IBIT'),
   asset('KR_FOREIGN_SPOT', 'Foreign investor KOSPI spot net buy (source connection required)', 'FLOW', 'KOSPI', 'KRW', 8, { kind: 'UNAVAILABLE' }, false),
   asset('KR_FOREIGN_FUTURES', 'Foreign investor KOSPI200 futures net buy (source connection required)', 'FLOW', 'KOSPI', 'KRW', 8, { kind: 'UNAVAILABLE' }, false),
   asset('SP500_ABOVE_200MA', 'S&P 500 members above 200MA (source connection required)', 'BREADTH', 'GLOBAL', 'USD', 5, { kind: 'UNAVAILABLE' }, false),
@@ -67,9 +67,11 @@ const kisOverseas = new Map<string, KisSource>(Object.entries({
   HY_OAS: { kind: 'OVERSEAS', code: 'HYG', exchange: 'AMS' },
   USO: { kind: 'OVERSEAS', code: 'USO', exchange: 'AMS' },
   BNO: { kind: 'OVERSEAS', code: 'BNO', exchange: 'AMS' },
-  GOLD: { kind: 'OVERSEAS', code: 'GLD', exchange: 'AMS' },
-  BTC: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
+  GLD: { kind: 'OVERSEAS', code: 'GLD', exchange: 'AMS' },
+  IBIT: { kind: 'OVERSEAS', code: 'IBIT', exchange: 'NAS' },
 } as const));
+
+const retiredAssetSymbols = new Set(['BTC', 'GOLD']);
 
 const treasury = new Map<string, TreasurySource>(Object.entries({
   US2Y: { term: '2 Yr' }, US10Y: { term: '10 Yr' },
@@ -86,7 +88,8 @@ const naverNewsQueries = new Map(Object.entries({
 }));
 
 export const alphaSourceFor = (symbol: string): AlphaSource =>
-  catalog.get(symbol.toUpperCase())?.source ?? { kind: 'STOCK', symbol };
+  catalog.get(symbol.toUpperCase())?.source
+    ?? (retiredAssetSymbols.has(symbol.toUpperCase()) ? { kind: 'UNAVAILABLE' } : { kind: 'STOCK', symbol });
 
 export const kisSourceFor = (symbol: string): KisSource | null =>
   catalog.get(symbol.toUpperCase())?.kisSource ?? kisOverseas.get(symbol.toUpperCase())
@@ -97,7 +100,7 @@ export const yahooSourceFor = (symbol: string): YahooSource | null => yahoo.get(
 
 export const newsTickerFor = (symbol: string): string | null => {
   const item = catalog.get(symbol.toUpperCase());
-  return item ? item.newsTicker ?? null : symbol;
+  return item ? item.newsTicker ?? null : retiredAssetSymbols.has(symbol.toUpperCase()) ? null : symbol;
 };
 
 export const naverNewsQueryFor = (symbol: string, name?: string): string | null =>

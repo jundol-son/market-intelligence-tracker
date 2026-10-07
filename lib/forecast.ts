@@ -63,10 +63,10 @@ export function createForecast(similarDays: SimilarDay[], compositeScore: number
 }
 
 export function responseLevel(forecast: ReturnType<typeof createForecast>) {
-  if (forecast.confidence < 45) return '관망';
-  if (forecast.expectedHigh - forecast.expectedLow >= 4) return '변동성 확대 대비';
-  if (forecast.upProbability >= 65) return '조정 시 매수 우위';
-  if (forecast.upProbability <= 35) return '포지션 축소 고려';
-  if (forecast.upProbability >= 55) return '추격매수 주의';
-  return '관망';
+  if (forecast.confidence < 45) return '낮은 신뢰도';
+  if (forecast.expectedHigh - forecast.expectedLow >= 4) return '변동성 확대 가능성';
+  if (forecast.upProbability >= 65) return '상승 편향 관측';
+  if (forecast.upProbability <= 35) return '하락 편향 관측';
+  if (forecast.upProbability >= 55) return '완만한 상승 편향';
+  return '중립 관측';
 }

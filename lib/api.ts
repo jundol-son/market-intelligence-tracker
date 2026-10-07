@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:workers';
+import { classifyApiError, withErrorMetadata } from '@/lib/api-error';
 import { secureEqualAny } from '@/lib/security';
 
 export function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
+  return Response.json(withErrorMetadata(data, status), { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export function requireAdmin(request: Request): Response | null {
@@ -15,8 +16,9 @@ export function requireAdmin(request: Request): Response | null {
 }
 
 export function apiError(error: unknown): Response {
-  const message = error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
-  return json({ error: message }, /UNIQUE constraint failed/i.test(message) ? 409 : 400);
+  const failure = classifyApiError(error);
+  if (failure.status >= 500) console.error(`[API ${failure.code}]`, error);
+  return json({ error: failure.error, code: failure.code, retryable: failure.retryable }, failure.status);
 }
 
 export function pathId(request: Request, offset = 0): number {

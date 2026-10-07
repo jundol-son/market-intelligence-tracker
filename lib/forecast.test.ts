@@ -15,7 +15,7 @@ const forecast = createForecast(similar, 70, 60, 0);
 assert.equal(forecast.upProbability + forecast.downProbability, 100);
 assert.equal(forecast.bullProbability + forecast.baseProbability + forecast.bearProbability, 100);
 assert.ok(forecast.expectedLow <= forecast.expectedHigh);
-assert.ok(['관망', '변동성 확대 대비', '조정 시 매수 우위', '포지션 축소 고려', '추격매수 주의'].includes(responseLevel(forecast)));
+assert.ok(['낮은 신뢰도', '변동성 확대 가능성', '상승 편향 관측', '하락 편향 관측', '완만한 상승 편향', '중립 관측'].includes(responseLevel(forecast)));
 assert.throws(() => createForecast(similar.slice(0, 4), 50, null, 0), /최소 5개/);
 
 console.log('forecast engine: ok');

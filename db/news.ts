@@ -44,8 +44,11 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
       created += 1;
     } else {
       await db.prepare(`UPDATE news_events SET
+        sentiment=CASE WHEN ?='UNANALYZED' THEN sentiment ELSE ? END,
+        sentiment_score=CASE WHEN ?='UNANALYZED' THEN sentiment_score ELSE ? END,
         impact_score=MAX(impact_score, ?), confidence_score=MAX(confidence_score, ?)
-        WHERE id=?`).bind(article.impactScore, article.confidenceScore, eventId).run();
+        WHERE id=?`).bind(article.sentiment, article.sentiment, article.sentiment,
+          article.sentimentScore, article.impactScore, article.confidenceScore, eventId).run();
     }
     await db.batch([
       db.prepare(`INSERT OR IGNORE INTO news_sources
@@ -55,8 +58,9 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
         (event_id, asset_id, relevance_score, sentiment_score) VALUES (?, ?, ?, ?)
         ON CONFLICT(event_id, asset_id) DO UPDATE SET
           relevance_score=MAX(relevance_score, excluded.relevance_score),
-          sentiment_score=excluded.sentiment_score`)
-        .bind(eventId, assetId, article.relevanceScore, article.sentimentScore),
+          sentiment_score=CASE WHEN ?=1 THEN excluded.sentiment_score ELSE sentiment_score END`)
+        .bind(eventId, assetId, article.relevanceScore, article.sentimentScore,
+          article.sentiment === 'UNANALYZED' ? 0 : 1),
       db.prepare(`UPDATE news_events SET is_duplicate_group=(
         SELECT COUNT(*)>1 FROM news_sources WHERE event_id=?) WHERE id=?`).bind(eventId, eventId),
     ]);
@@ -68,8 +72,14 @@ export async function saveNews(assetId: number, articles: NewsArticle[]) {
     FROM news_events e JOIN news_event_assets a ON a.event_id=e.id
     JOIN news_sources s ON s.event_id=e.id
     WHERE a.asset_id=? AND a.relevance_score>=0.7
+      AND e.sentiment!='UNANALYZED'
       AND datetime(e.event_time)>=datetime('now', '-3 days')
     GROUP BY e.id`).bind(assetId).all<ScoreEvent>();
+  if (!scoreRows.results.length) {
+    await db.prepare(`UPDATE asset_scores SET news_score=NULL WHERE id=(SELECT id FROM asset_scores
+      WHERE asset_id=? ORDER BY date DESC LIMIT 1)`).bind(assetId).run();
+    return { fetched: articles.length, created, score: null, divergence: null };
+  }
   const score = calculateNewsScore(scoreRows.results);
   const latest = await db.prepare(`SELECT i.return_1d AS return1d
     FROM asset_indicators i WHERE i.asset_id=? ORDER BY i.date DESC LIMIT 1`)
@@ -170,7 +180,8 @@ export async function listNews(limit = 50) {
       ORDER BY m.relevance_score DESC`).bind(limit).all(),
     db.prepare(`SELECT n.asset_id AS assetId, a.symbol, a.name, n.date, n.score,
       n.event_count AS eventCount, n.divergence FROM news_scores n JOIN assets a ON a.id=n.asset_id
-      WHERE n.id IN (SELECT MAX(id) FROM news_scores GROUP BY asset_id) ORDER BY n.score DESC`).all(),
+      WHERE n.id IN (SELECT MAX(id) FROM news_scores GROUP BY asset_id)
+        AND date(n.date)>=date('now', '-3 days') ORDER BY n.score DESC`).all(),
   ]);
   return {
     events: events.results.map((event) => ({

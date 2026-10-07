@@ -50,15 +50,23 @@ export async function upsertIndicators(assetId: number, rows: IndicatorPoint[]):
       ma120_distance, ma200_distance, ma20_slope, ma60_slope, rsi14, atr14,
       return_1d, return_5d, return_20d, return_60d, volume_ratio, relative_strength)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(asset_id, date) DO UPDATE SET ma5=excluded.ma5, ma20=excluded.ma20,
-      ma60=excluded.ma60, ma120=excluded.ma120, ma200=excluded.ma200,
-      ma20_distance=excluded.ma20_distance, ma60_distance=excluded.ma60_distance,
-      ma120_distance=excluded.ma120_distance, ma200_distance=excluded.ma200_distance,
-      ma20_slope=excluded.ma20_slope, ma60_slope=excluded.ma60_slope,
-      rsi14=excluded.rsi14, atr14=excluded.atr14, return_1d=excluded.return_1d,
-      return_5d=excluded.return_5d, return_20d=excluded.return_20d,
-      return_60d=excluded.return_60d, volume_ratio=excluded.volume_ratio,
-      relative_strength=excluded.relative_strength`)
+    ON CONFLICT(asset_id, date) DO UPDATE SET
+      ma5=COALESCE(excluded.ma5, ma5), ma20=COALESCE(excluded.ma20, ma20),
+      ma60=COALESCE(excluded.ma60, ma60), ma120=COALESCE(excluded.ma120, ma120),
+      ma200=COALESCE(excluded.ma200, ma200),
+      ma20_distance=COALESCE(excluded.ma20_distance, ma20_distance),
+      ma60_distance=COALESCE(excluded.ma60_distance, ma60_distance),
+      ma120_distance=COALESCE(excluded.ma120_distance, ma120_distance),
+      ma200_distance=COALESCE(excluded.ma200_distance, ma200_distance),
+      ma20_slope=COALESCE(excluded.ma20_slope, ma20_slope),
+      ma60_slope=COALESCE(excluded.ma60_slope, ma60_slope),
+      rsi14=COALESCE(excluded.rsi14, rsi14), atr14=COALESCE(excluded.atr14, atr14),
+      return_1d=COALESCE(excluded.return_1d, return_1d),
+      return_5d=COALESCE(excluded.return_5d, return_5d),
+      return_20d=COALESCE(excluded.return_20d, return_20d),
+      return_60d=COALESCE(excluded.return_60d, return_60d),
+      volume_ratio=COALESCE(excluded.volume_ratio, volume_ratio),
+      relative_strength=COALESCE(excluded.relative_strength, relative_strength)`)
     .bind(assetId, row.date, row.ma5, row.ma20, row.ma60, row.ma120, row.ma200,
       row.ma20Distance, row.ma60Distance, row.ma120Distance, row.ma200Distance,
       row.ma20Slope, row.ma60Slope, row.rsi14, row.atr14, row.return1d, row.return5d,

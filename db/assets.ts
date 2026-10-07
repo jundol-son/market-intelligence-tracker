@@ -56,9 +56,11 @@ export async function seedDefaultAssets() {
   const legacyProxies = [
     { from: 'WTI', to: 'USO', oldName: 'WTI crude oil', name: 'WTI ETF proxy (USO)' },
     { from: 'BRENT', to: 'BNO', oldName: 'Brent crude oil', name: 'Brent ETF proxy (BNO)' },
+    { from: 'GOLD', to: 'GLD', oldName: 'Gold', name: 'Gold ETF proxy (GLD)' },
+    { from: 'BTC', to: 'IBIT', oldName: 'Bitcoin / USD', name: 'Bitcoin ETF proxy (IBIT)' },
   ];
   await db.batch(legacyProxies.map((item) => db.prepare(`UPDATE assets
-    SET symbol=?, name=?, asset_type='ETF', updated_at=CURRENT_TIMESTAMP
+    SET symbol=?, name=?, asset_type='ETF', market='GLOBAL', currency='USD', updated_at=CURRENT_TIMESTAMP
     WHERE symbol=? AND name=? AND NOT EXISTS (SELECT 1 FROM assets WHERE symbol=?)`)
     .bind(item.to, item.name, item.from, item.oldName, item.to)));
   await db.batch(legacyProxies.map((item) => db.prepare(`UPDATE report_metrics SET symbol=?, name=?
@@ -69,6 +71,18 @@ export async function seedDefaultAssets() {
     input.symbol, input.name, input.assetType, input.market, input.currency,
     input.benchmarkAssetId, input.groupId, input.enabled ? 1 : 0, input.importanceWeight,
   )));
+  const benchmarks = [
+    { symbol: 'NASDAQ100', benchmark: 'SP500' },
+    { symbol: 'SOX', benchmark: 'SP500' },
+    { symbol: 'NVDA', benchmark: 'SP500' },
+    { symbol: 'KOSDAQ', benchmark: 'KOSPI' },
+    { symbol: '005930', benchmark: 'KOSPI' },
+    { symbol: '000660', benchmark: 'KOSPI' },
+    { symbol: '091160', benchmark: 'KOSPI' },
+  ];
+  await db.batch(benchmarks.map((item) => db.prepare(`UPDATE assets
+    SET benchmark_asset_id=(SELECT id FROM assets WHERE symbol=?), updated_at=CURRENT_TIMESTAMP
+    WHERE symbol=? AND benchmark_asset_id IS NULL`).bind(item.benchmark, item.symbol)));
   await db.prepare(`UPDATE assets SET name=CASE symbol WHEN 'KOSPI' THEN 'KOSPI' ELSE 'KOSDAQ' END,
     market=symbol, currency='KRW', enabled=1, updated_at=CURRENT_TIMESTAMP
     WHERE symbol IN ('KOSPI', 'KOSDAQ')`).run();

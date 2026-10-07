@@ -1,6 +1,6 @@
 import { responseLevel } from '@/lib/forecast';
 import {
-  emailMessage, notificationDue, telegramCommandMessage, telegramMessage,
+  emailDeliveryStatus, emailMessage, notificationDue, telegramCommandMessage, telegramMessage,
   type EmailRecipient, type NotificationChannel, type NotificationPayload, type NotificationSettingInput,
 } from '@/lib/notification';
 import { getKisDashboard } from './kis-insights';
@@ -94,12 +94,10 @@ export async function latestNotificationPayload(db: D1Database, now = new Date()
       a.importance_weight AS importanceWeight, m.price, m.daily_return AS dailyReturn,
       m.composite_score AS compositeScore, m.trend_score AS trendScore,
       m.momentum_score AS momentumScore, m.risk_score AS riskScore, m.news_score AS newsScore,
-      m.score_change AS scoreChange1d,
-      (SELECT p.date FROM asset_prices p WHERE p.asset_id=a.id AND p.date<=?
-        ORDER BY p.date DESC LIMIT 1) AS priceDate
+      m.score_change AS scoreChange1d, m.price_date AS priceDate
       FROM assets a LEFT JOIN report_metrics m ON m.asset_id=a.id AND m.report_id=?
       WHERE a.enabled=1 ORDER BY m.composite_score DESC, a.symbol`)
-      .bind(report.reportDate, report.reportId).all<NotificationPayload['metrics'][number]>(),
+      .bind(report.reportId).all<NotificationPayload['metrics'][number]>(),
     db.prepare(`SELECT up_probability AS upProbability, down_probability AS downProbability,
       expected_low AS expectedLow, expected_high AS expectedHigh,
       bull_probability AS bullProbability, base_probability AS baseProbability,
@@ -133,22 +131,65 @@ async function sendTelegram(env: NotificationEnv, text: string) {
   if (!response.ok) throw new Error(`Telegram 발송에 실패했습니다. (${response.status})`);
 }
 
-async function deliver(channel: NotificationChannel, payload: NotificationPayload, env: NotificationEnv, reportUrl: string, emailRecipients: string[]) {
-  if (channel === 'TELEGRAM') return sendTelegram(env, telegramMessage(payload, reportUrl));
-  if (!emailRecipients.length) throw new Error('Email 수신 주소가 설정되지 않았습니다.');
-  const message = emailMessage(payload, reportUrl);
-  if (env.EMAIL && env.EMAIL_FROM) return Promise.all(emailRecipients.map((to) => env.EMAIL!.send({ from: env.EMAIL_FROM!, to, ...message })));
+async function sendEmail(env: NotificationEnv, to: string, message: ReturnType<typeof emailMessage>) {
+  if (env.EMAIL && env.EMAIL_FROM) return env.EMAIL.send({ from: env.EMAIL_FROM, to, ...message });
   if (!env.RESEND_API_KEY) throw new Error('무료 Email API 키가 설정되지 않았습니다.');
-  const responses = await Promise.all(emailRecipients.map((to) => fetch('https://api.resend.com/emails', {
+  const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json', 'user-agent': 'market-intelligence-tracker/1.0' },
     body: JSON.stringify({ from: env.EMAIL_FROM ?? 'Market Intelligence <onboarding@resend.dev>', to: [to], ...message }),
-  })));
-  const failed = responses.find((response) => !response.ok);
-  if (failed) {
-    const error = await failed.json().catch(() => ({})) as { message?: string };
-    throw new Error(`Email 발송 실패 (${failed.status}): ${error.message ?? '응답 오류'}`);
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(`Email 발송 실패 (${response.status}): ${error.message ?? '응답 오류'}`);
   }
+}
+
+async function claimDelivery(db: D1Database, settingId: number, reportId: number) {
+  return db.prepare(`INSERT INTO notification_deliveries
+    (setting_id, report_id, status, attempted_at) VALUES (?, ?, 'RUNNING', CURRENT_TIMESTAMP)
+    ON CONFLICT(setting_id, report_id) DO UPDATE SET
+      status='RUNNING', error_message=NULL, attempted_at=CURRENT_TIMESTAMP
+    WHERE notification_deliveries.status IN ('FAILED', 'PARTIAL')
+      OR (notification_deliveries.status='RUNNING' AND
+        (notification_deliveries.attempted_at IS NULL
+          OR datetime(notification_deliveries.attempted_at)<datetime('now', '-15 minutes')))
+    RETURNING id`).bind(settingId, reportId).first<{ id: number }>();
+}
+
+async function deliverEmailRecipients(db: D1Database, deliveryId: number, env: NotificationEnv,
+  addresses: string[], message: ReturnType<typeof emailMessage>) {
+  if (!addresses.length) return { status: 'FAILED' as const, error: 'Email 수신 주소가 설정되지 않았습니다.' };
+  await db.batch(addresses.map((address) => db.prepare(`INSERT OR IGNORE INTO notification_recipient_deliveries
+    (delivery_id, recipient, status) VALUES (?, ?, 'PENDING')`).bind(deliveryId, address)));
+  const existing = await db.prepare(`SELECT recipient, status FROM notification_recipient_deliveries
+    WHERE delivery_id=?`).bind(deliveryId).all<{ recipient: string; status: string }>();
+  const statuses = new Map(existing.results.map((item) => [item.recipient, item.status]));
+  let sent = 0;
+  const failures: string[] = [];
+  for (const address of addresses) {
+    if (statuses.get(address) === 'SENT') {
+      sent += 1;
+      continue;
+    }
+    await db.prepare(`UPDATE notification_recipient_deliveries SET status='RUNNING',
+      attempted_at=CURRENT_TIMESTAMP, error_message=NULL WHERE delivery_id=? AND recipient=?`)
+      .bind(deliveryId, address).run();
+    try {
+      await sendEmail(env, address, message);
+      await db.prepare(`UPDATE notification_recipient_deliveries SET status='SENT',
+        sent_at=CURRENT_TIMESTAMP, error_message=NULL WHERE delivery_id=? AND recipient=?`)
+        .bind(deliveryId, address).run();
+      sent += 1;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Email 발송에 실패했습니다.';
+      await db.prepare(`UPDATE notification_recipient_deliveries SET status='FAILED', error_message=?
+        WHERE delivery_id=? AND recipient=?`).bind(detail, deliveryId, address).run();
+      failures.push(`${address}: ${detail}`);
+    }
+  }
+  const status = emailDeliveryStatus(sent, failures.length);
+  return { status, error: failures.length ? failures.join('; ') : undefined };
 }
 
 export async function runNotifications(env: NotificationEnv, options: {
@@ -165,15 +206,14 @@ export async function runNotifications(env: NotificationEnv, options: {
   const latest = await env.DB.prepare(`SELECT id AS reportId FROM reports
     ORDER BY report_date DESC, id DESC LIMIT 1`).first<{ reportId: number }>();
   if (!latest) throw new Error('발송할 Daily Report가 없습니다.');
-  const results: Array<{ channel: NotificationChannel; status: 'SENT' | 'FAILED' | 'SKIPPED'; error?: string }> = [];
-  const pending = [] as SettingRow[];
+  const results: Array<{ channel: NotificationChannel; status: 'SENT' | 'FAILED' | 'PARTIAL' | 'SKIPPED'; error?: string }> = [];
+  const claimed: Array<{ setting: SettingRow; deliveryId: number }> = [];
   for (const setting of eligible) {
-    const previous = await env.DB.prepare(`SELECT status FROM notification_deliveries
-      WHERE setting_id=? AND report_id=?`).bind(setting.id, latest.reportId).first<{ status: string }>();
-    if (previous?.status === 'SENT') results.push({ channel: setting.channel, status: 'SKIPPED' });
-    else pending.push(setting);
+    const delivery = await claimDelivery(env.DB, setting.id, latest.reportId);
+    if (delivery) claimed.push({ setting, deliveryId: delivery.id });
+    else results.push({ channel: setting.channel, status: 'SKIPPED' });
   }
-  if (!pending.length) return { reportId: latest.reportId, results };
+  if (!claimed.length) return { reportId: latest.reportId, results };
   const started = await env.DB.prepare(`INSERT INTO job_runs (job_name, status)
     VALUES (?, 'RUNNING') RETURNING id`).bind(options.jobName ?? 'NOTIFICATION').first<{ id: number }>();
   if (!started) throw new Error('Job 실행 기록을 만들지 못했습니다.');
@@ -182,30 +222,38 @@ export async function runNotifications(env: NotificationEnv, options: {
     if (!payload) throw new Error('발송할 Daily Report가 없습니다.');
     const reportUrl = `${(options.baseUrl ?? env.PUBLIC_APP_URL ?? 'https://market-intelligence-tracker.sjsuk321.workers.dev').replace(/\/$/, '')}/`;
     const emailRecipients = (await recipients(env)).map((item) => item.email);
-    for (const setting of pending) {
-      await env.DB.prepare(`INSERT INTO notification_deliveries (setting_id, report_id, status)
-        VALUES (?, ?, 'RUNNING') ON CONFLICT(setting_id, report_id) DO UPDATE SET
-        status='RUNNING', error_message=NULL`).bind(setting.id, payload.reportId).run();
-      try {
-        await deliver(setting.channel, payload, env, reportUrl, emailRecipients);
-        await env.DB.prepare(`UPDATE notification_deliveries SET status='SENT', sent_at=CURRENT_TIMESTAMP,
-          error_message=NULL WHERE setting_id=? AND report_id=?`).bind(setting.id, payload.reportId).run();
-        results.push({ channel: setting.channel, status: 'SENT' });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '알림 발송에 실패했습니다.';
-        await env.DB.prepare(`UPDATE notification_deliveries SET status='FAILED', error_message=?
-          WHERE setting_id=? AND report_id=?`).bind(message, setting.id, payload.reportId).run();
-        results.push({ channel: setting.channel, status: 'FAILED', error: message });
+    for (const item of claimed) {
+      let outcome: { status: 'SENT' | 'FAILED' | 'PARTIAL'; error?: string };
+      if (item.setting.channel === 'EMAIL') {
+        outcome = await deliverEmailRecipients(env.DB, item.deliveryId, env, emailRecipients,
+          emailMessage(payload, reportUrl));
+      } else {
+        try {
+          await sendTelegram(env, telegramMessage(payload, reportUrl));
+          outcome = { status: 'SENT' };
+        } catch (error) {
+          outcome = { status: 'FAILED', error: error instanceof Error ? error.message : '알림 발송에 실패했습니다.' };
+        }
       }
+      await env.DB.prepare(`UPDATE notification_deliveries SET status=?, error_message=?,
+        sent_at=CASE WHEN ?='SENT' THEN CURRENT_TIMESTAMP ELSE sent_at END WHERE id=?`)
+        .bind(outcome.status, outcome.error ?? null, outcome.status, item.deliveryId).run();
+      results.push({ channel: item.setting.channel, ...outcome });
     }
-    const failed = results.filter((item) => item.status === 'FAILED');
+    const attempted = results.filter((item) => item.status !== 'SKIPPED');
+    const failures = attempted.filter((item) => item.status === 'FAILED' || item.status === 'PARTIAL');
+    const jobStatus = failures.length ? (attempted.some((item) => item.status === 'SENT' || item.status === 'PARTIAL') ? 'PARTIAL' : 'FAILED') : 'SUCCESS';
     await env.DB.prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status=?, error_message=? WHERE id=?`)
-      .bind(failed.length ? 'FAILED' : 'SUCCESS', failed.map((item) => item.error).join('; ') || null, started.id).run();
+      .bind(jobStatus, failures.map((item) => item.error).filter(Boolean).join('; ') || null, started.id).run();
     return { reportId: payload.reportId, results };
   } catch (error) {
     const message = error instanceof Error ? error.message : '알림 작업에 실패했습니다.';
-    await env.DB.prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status='FAILED',
-      error_message=? WHERE id=?`).bind(message, started.id).run();
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status='FAILED',
+        error_message=? WHERE id=?`).bind(message, started.id),
+      ...claimed.map((item) => env.DB.prepare(`UPDATE notification_deliveries SET status='FAILED',
+        error_message=? WHERE id=? AND status='RUNNING'`).bind(message, item.deliveryId)),
+    ]);
     throw error;
   }
 }

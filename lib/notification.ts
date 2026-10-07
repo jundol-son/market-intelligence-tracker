@@ -99,6 +99,10 @@ export function notificationDue(now: Date, sendTime: string, timezone: string) {
   return { localDate: `${parts.year}-${parts.month}-${parts.day}`, due: localTime >= sendTime };
 }
 
+export function emailDeliveryStatus(sent: number, failed: number): 'SENT' | 'PARTIAL' | 'FAILED' {
+  return failed === 0 ? 'SENT' : sent > 0 ? 'PARTIAL' : 'FAILED';
+}
+
 const number = (value: number | null, suffix = '') => value === null ? '—' : `${value.toFixed(1)}${suffix}`;
 const signed = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 

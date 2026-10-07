@@ -7,7 +7,7 @@ export const NEWS_CATEGORIES = [
   'Product Launch', 'Legal', 'Supply Chain', 'Other',
 ] as const;
 
-export type NewsSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED';
+export type NewsSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED' | 'UNANALYZED';
 export type NewsDuration = 'INTRADAY' | 'SHORT_TERM' | 'MEDIUM_TERM' | 'LONG_TERM';
 
 export type NewsArticle = {
@@ -143,8 +143,8 @@ export function parseNaverNews(input: unknown): NewsArticle[] {
     return [{
       title, summary, category: 'Other' as const, eventTime: new Date(published).toISOString(),
       source: `NAVER Search · ${host}`, sourceUrl, sourceRank: sourceRank(host, sourceUrl),
-      sentiment: 'NEUTRAL' as const, sentimentScore: 0, impactScore: 40,
-      confidenceScore: 80, durationType: 'SHORT_TERM' as const, relevanceScore: 1,
+      sentiment: 'UNANALYZED' as const, sentimentScore: 0, impactScore: 0,
+      confidenceScore: 0, durationType: 'SHORT_TERM' as const, relevanceScore: 1,
     }];
   });
 }

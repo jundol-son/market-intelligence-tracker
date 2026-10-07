@@ -82,7 +82,8 @@ Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로
 - `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 25개를 API 호출 없이 중복 안전하게 등록
 - `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
 - Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 5시간 중복 호출 방지
-- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Crypto, Treasury Yield, WTI·Brent 최근월물 선물, Gold 응답 형식 지원
+- KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Treasury Yield, WTI·Brent 최근월물 선물 지원
+- 금과 비트코인은 실제 수집 상품인 `GLD`, `IBIT` ETF로 고정해 공급자 설정에 따라 현물과 ETF 이력이 섞이지 않음
 - US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
 - VIX·DXY·US 2Y·US 10Y의 추세/모멘텀은 상승을 위험 증가 방향으로 반전해 점수 계산
 
@@ -113,6 +114,20 @@ KOSPI·KOSDAQ과 한국 대표 종목은 KIS 실제 일봉을 사용합니다. �
 - 자산별 실제 기준일을 표시하고 3일 초과 지연·미연결 데이터를 Dashboard와 Email에서 경고
 - 6자리 국내 종목코드는 별도 소스 코드 수정 없이 KIS 조회 대상으로 인식
 - 주문·정정·취소·잔고·계좌·hashkey API는 허용 목록 밖으로 유지
+
+## Phase 14A
+
+- 금·비트코인 프록시를 `GLD`·`IBIT` ETF로 고정하고 기존 `GOLD`·`BTC` 혼합 수집 경로 차단
+- 지표 재계산 시 새 null 값이 이미 계산된 장기 지표를 덮어쓰지 않도록 보존
+- Daily Report를 최초 발행 시점의 불변 Snapshot으로 유지하고 자산별 실제 가격 기준일 저장
+- Cron 실패 기록, 장기 실행 작업 만료 처리, `job_runs` 조회 인덱스로 운영 진단과 D1 조회 효율 개선
+- NAVER 국내 뉴스의 연결 상태와 종목명을 표시하고, 별도 감성 분석 전 기사는 `미분석`으로 명확히 구분
+- 오래된 News Score를 가격 점수에서 제외하고 분석 구간 경계·기본 벤치마크 연결을 보정
+- Forecast 문구를 매매 지시가 아닌 확률적 관측 표현으로 변경
+- 알림 발송권을 D1에서 원자적으로 선점하고 Email 수신자별 성공 상태를 보존해 중복 발송과 전체 재발송 방지
+- 모든 API 오류에 안정된 `code`·`retryable` 필드를 추가하고 입력·인증·충돌·공급자 제한·일시 장애·내부 오류별 HTTP 상태 적용
+- Forecast 확률을 자산별 과거 상승 빈도 baseline과 Brier score로 비교하고 월별 walk-forward 품질 표시
+- Forecast 표본 부족 경고와 확률 구간별 평균 예측·실제 상승률 calibration 표시
 
 화면의 시장 점수와 지표는 구조 확인용 예시값이며 실제 데이터 수집은 Phase 2에서 연결합니다.
 

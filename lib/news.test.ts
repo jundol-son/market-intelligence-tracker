@@ -28,7 +28,8 @@ const naver = parseNaverNews({ items: [{
 assert.equal(naver[0].title, '삼성전자, 반도체 투자 확대');
 assert.equal(naver[0].summary, 'AI & 반도체 생산을 늘립니다.');
 assert.equal(naver[0].source, 'NAVER Search · news.example.kr');
-assert.equal(naver[0].sentiment, 'NEUTRAL');
+assert.equal(naver[0].sentiment, 'UNANALYZED');
+assert.equal(naver[0].impactScore, 0);
 assert.equal(parseNaverNews({ items: [{ title: '잘못된 링크', originallink: 'http://', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' }] }).length, 0);
 assert.equal(parseAlphaVantageNews({ feed: [{
   title: 'Unrelated company merely mentions Nvidia', summary: 'Brief mention.', source: 'Example',

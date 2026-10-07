@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  emailMessage, notificationDue, parseEmailRecipients, parseNotificationSettings, telegramCommandMessage, telegramMessage,
+  emailDeliveryStatus, emailMessage, notificationDue, parseEmailRecipients, parseNotificationSettings, telegramCommandMessage, telegramMessage,
   type NotificationPayload,
 } from './notification.ts';
 import { summarizeDataFreshness } from './data-freshness.ts';
@@ -28,6 +28,9 @@ assert.throws(() => parseEmailRecipients({ recipients: ['not-an-email'] }), /올
 
 assert.equal(notificationDue(new Date('2026-09-07T23:00:00Z'), '08:00', 'Asia/Seoul').due, true);
 assert.equal(notificationDue(new Date('2026-09-07T22:59:00Z'), '08:00', 'Asia/Seoul').due, false);
+assert.equal(emailDeliveryStatus(2, 0), 'SENT');
+assert.equal(emailDeliveryStatus(1, 1), 'PARTIAL');
+assert.equal(emailDeliveryStatus(0, 2), 'FAILED');
 
 assert.match(telegramMessage(payload, 'https://example.com'), /Up Probability   50\.8%/);
 assert.match(telegramMessage(payload, 'https://example.com'), /Data Check/);

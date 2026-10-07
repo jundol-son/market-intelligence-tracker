@@ -17,6 +17,7 @@ type MetricSnapshot = {
   symbol: string;
   name: string;
   price: number | null;
+  priceDate: string | null;
   dailyReturn: number | null;
   ma20: number | null;
   ma60: number | null;
@@ -42,8 +43,9 @@ export async function generateDailyReport() {
 
   const existing = await db.prepare(`SELECT id FROM reports
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
+  if (existing) return { id: existing.id, created: false };
 
-  const metrics = await db.prepare(`SELECT a.id AS assetId, a.symbol, a.name, p.close AS price,
+  const metrics = await db.prepare(`SELECT a.id AS assetId, a.symbol, a.name, p.close AS price, p.date AS priceDate,
     i.return_1d AS dailyReturn, i.ma20, i.ma60, i.ma120, i.ma200,
     i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance,
     i.ma120_distance AS ma120Distance, i.ma200_distance AS ma200Distance, i.rsi14 AS rsi,
@@ -60,23 +62,19 @@ export async function generateDailyReport() {
 
   const summary = reportSummary(market.marketRegime, market.overallScore, market.overallChange);
   // ponytail: one prepared insert per tracked asset; replace with a bulk import only if the watchlist approaches D1's per-invocation query limit.
-  await db.batch([
+  const [inserted] = await db.batch([
     db.prepare(`INSERT INTO reports
       (report_date, report_type, overall_score, global_score, korea_score, market_regime, summary)
       VALUES (?, 'DAILY', ?, ?, ?, ?, ?)
-      ON CONFLICT(report_date, report_type) DO UPDATE SET overall_score=excluded.overall_score,
-        global_score=excluded.global_score, korea_score=excluded.korea_score,
-        market_regime=excluded.market_regime, summary=excluded.summary`)
+      ON CONFLICT(report_date, report_type) DO NOTHING`)
       .bind(market.date, market.overallScore, market.globalScore, market.koreaScore, market.marketRegime, summary),
-    db.prepare(`DELETE FROM report_metrics WHERE report_id=(SELECT id FROM reports
-      WHERE report_date=? AND report_type='DAILY')`).bind(market.date),
-    ...metrics.results.map((item) => db.prepare(`INSERT INTO report_metrics
-      (report_id, asset_id, symbol, name, price, daily_return, ma20, ma60, ma120, ma200,
+    ...metrics.results.map((item) => db.prepare(`INSERT OR IGNORE INTO report_metrics
+      (report_id, asset_id, symbol, name, price, price_date, daily_return, ma20, ma60, ma120, ma200,
         ma20_distance, ma60_distance, ma120_distance, ma200_distance, rsi,
         trend_score, momentum_score, risk_score, news_score, composite_score, score_change)
-      SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       FROM reports WHERE report_date=? AND report_type='DAILY'`)
-      .bind(item.assetId, item.symbol, item.name, item.price, item.dailyReturn,
+      .bind(item.assetId, item.symbol, item.name, item.price, item.priceDate, item.dailyReturn,
         item.ma20, item.ma60, item.ma120, item.ma200, item.ma20Distance, item.ma60Distance,
         item.ma120Distance, item.ma200Distance, item.rsi, item.trendScore, item.momentumScore,
         item.riskScore, item.newsScore, item.compositeScore, item.scoreChange, market.date)),
@@ -86,7 +84,7 @@ export async function generateDailyReport() {
     WHERE report_date=? AND report_type='DAILY'`).bind(market.date).first<{ id: number }>();
   if (!report) throw new Error('리포트 저장에 실패했습니다.');
   await generateForecasts(report.id);
-  return { id: report.id, created: !existing };
+  return { id: report.id, created: (inserted.meta.changes ?? 0) > 0 };
 }
 
 export async function listReports(limit = 90) {
@@ -110,7 +108,7 @@ export async function getReport(id: number) {
     confidence, created_at AS createdAt FROM reports WHERE id=?`).bind(id).first();
   if (!report) return null;
   const [metrics, forecastRows, similarRows] = await Promise.all([
-    db.prepare(`SELECT asset_id AS assetId, symbol, name, price, daily_return AS dailyReturn,
+    db.prepare(`SELECT asset_id AS assetId, symbol, name, price, price_date AS priceDate, daily_return AS dailyReturn,
       ma20, ma60, ma120, ma200, ma20_distance AS ma20Distance,
       ma60_distance AS ma60Distance, ma120_distance AS ma120Distance,
       ma200_distance AS ma200Distance, rsi, trend_score AS trendScore,
@@ -145,6 +143,7 @@ export async function getReport(id: number) {
 
 type ForecastTarget = SimilarityFeatures & {
   reportDate: string;
+  priceDate: string;
   targetAssetId: number;
   compositeScore: number;
   newsScore: number | null;
@@ -152,15 +151,17 @@ type ForecastTarget = SimilarityFeatures & {
 
 export async function generateForecasts(reportId: number) {
   const db = getDb();
-  const targets = await db.prepare(`SELECT r.report_date AS reportDate, m.asset_id AS targetAssetId,
+  const targets = await db.prepare(`SELECT r.report_date AS reportDate, m.price_date AS priceDate,
+    m.asset_id AS targetAssetId,
     m.composite_score AS compositeScore, m.news_score AS newsScore,
     i.return_1d AS return1d, i.return_5d AS return5d, i.return_20d AS return20d,
     i.ma20_distance AS ma20Distance, i.ma60_distance AS ma60Distance, i.rsi14,
     i.atr14 / p.close * 100 AS atrPercent, i.volume_ratio AS volumeRatio
     FROM report_metrics m JOIN reports r ON r.id=m.report_id
-    JOIN asset_indicators i ON i.asset_id=m.asset_id AND i.date=r.report_date
-    JOIN asset_prices p ON p.asset_id=m.asset_id AND p.date=r.report_date
+    JOIN asset_indicators i ON i.asset_id=m.asset_id AND i.date=m.price_date
+    JOIN asset_prices p ON p.asset_id=m.asset_id AND p.date=m.price_date
     WHERE m.report_id=? AND m.composite_score IS NOT NULL
+      AND m.price_date IS NOT NULL
       AND i.return_1d IS NOT NULL AND i.return_5d IS NOT NULL AND i.return_20d IS NOT NULL
       AND i.ma20_distance IS NOT NULL AND i.ma60_distance IS NOT NULL
       AND i.rsi14 IS NOT NULL AND i.atr14 IS NOT NULL AND i.volume_ratio IS NOT NULL`)
@@ -188,7 +189,7 @@ export async function generateForecasts(reportId: number) {
         AND i.return_20d IS NOT NULL AND i.ma20_distance IS NOT NULL
         AND i.ma60_distance IS NOT NULL AND i.rsi14 IS NOT NULL AND i.atr14 IS NOT NULL
         AND i.volume_ratio IS NOT NULL ORDER BY i.date DESC LIMIT 500`)
-      .bind(target.targetAssetId, target.reportDate).all<HistoricalDay>();
+      .bind(target.targetAssetId, target.priceDate).all<HistoricalDay>();
     const similar = findSimilarDays(target, history.results.filter((day) => day.nextDayReturn !== null));
     if (similar.length < 5) continue;
     const forecast = createForecast(similar, target.compositeScore, target.newsScore, maxImpact?.value ?? 0);
@@ -231,7 +232,7 @@ export async function generateForecasts(reportId: number) {
 
 type PendingForecast = {
   id: number;
-  reportDate: string;
+  priceDate: string;
   targetAssetId: number;
   initialPrice: number;
   actualPrice: number | null;
@@ -243,16 +244,15 @@ type PendingForecast = {
 
 export async function evaluateForecastResults() {
   const db = getDb();
-  const pending = await db.prepare(`SELECT f.id, r.report_date AS reportDate,
+  const pending = await db.prepare(`SELECT f.id, m.price_date AS priceDate,
     f.target_asset_id AS targetAssetId, m.price AS initialPrice,
     (SELECT p.close FROM asset_prices p WHERE p.asset_id=f.target_asset_id
-      AND p.date>r.report_date ORDER BY p.date LIMIT 1) AS actualPrice,
+      AND p.date>m.price_date ORDER BY p.date LIMIT 1) AS actualPrice,
     f.up_probability AS upProbability, f.down_probability AS downProbability,
     f.expected_low AS expectedLow, f.expected_high AS expectedHigh
-    FROM forecasts f JOIN reports r ON r.id=f.report_id
-    JOIN report_metrics m ON m.report_id=f.report_id AND m.asset_id=f.target_asset_id
+    FROM forecasts f JOIN report_metrics m ON m.report_id=f.report_id AND m.asset_id=f.target_asset_id
     LEFT JOIN forecast_results x ON x.forecast_id=f.id
-    WHERE x.id IS NULL AND m.price>0`).all<PendingForecast>();
+    WHERE x.id IS NULL AND m.price>0 AND m.price_date IS NOT NULL`).all<PendingForecast>();
   const ready = pending.results.filter((item) => item.actualPrice !== null);
   if (!ready.length) return 0;
   await db.batch(ready.map((item) => {

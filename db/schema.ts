@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const assets = sqliteTable('assets', {
   id: integer().primaryKey({ autoIncrement: true }),
@@ -121,6 +121,7 @@ export const reportMetrics = sqliteTable('report_metrics', {
   symbol: text().notNull(),
   name: text().notNull(),
   price: real(),
+  priceDate: text('price_date'),
   dailyReturn: real('daily_return'),
   ma20: real(),
   ma60: real(),
@@ -262,9 +263,21 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   reportId: integer('report_id').notNull().references(() => reports.id, { onDelete: 'cascade' }),
   status: text().notNull(),
   errorMessage: text('error_message'),
+  attemptedAt: text('attempted_at'),
   sentAt: text('sent_at'),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex('notification_deliveries_setting_report_unique').on(table.settingId, table.reportId)]);
+
+export const notificationRecipientDeliveries = sqliteTable('notification_recipient_deliveries', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  deliveryId: integer('delivery_id').notNull().references(() => notificationDeliveries.id, { onDelete: 'cascade' }),
+  recipient: text().notNull(),
+  status: text().notNull(),
+  errorMessage: text('error_message'),
+  attemptedAt: text('attempted_at'),
+  sentAt: text('sent_at'),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex('notification_recipient_deliveries_unique').on(table.deliveryId, table.recipient)]);
 
 export const jobRuns = sqliteTable('job_runs', {
   id: integer().primaryKey({ autoIncrement: true }),
@@ -273,7 +286,7 @@ export const jobRuns = sqliteTable('job_runs', {
   finishedAt: text('finished_at'),
   status: text().notNull(),
   errorMessage: text('error_message'),
-});
+}, (table) => [index('job_runs_job_name_started_at_idx').on(table.jobName, table.startedAt)]);
 
 export const emailRecipients = sqliteTable('email_recipients', {
   id: integer().primaryKey({ autoIncrement: true }),

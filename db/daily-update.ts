@@ -22,8 +22,16 @@ export async function runDailyKisUpdate(credentials: ProviderCredentials, now = 
   const time = `${local.hour === '24' ? '00' : local.hour}:${local.minute}`;
   if (!force && (['Sat', 'Sun'].includes(local.weekday) || time < '16:10')) return { status: 'SKIPPED', reason: 'NOT_DUE' } as const;
   const jobName = `DAILY_KIS:${day}`;
-  const prior = await getDb().prepare(`SELECT status FROM job_runs WHERE job_name=? ORDER BY id DESC LIMIT 1`).bind(jobName).first<{ status: string }>();
-  if (!force && (prior?.status === 'SUCCESS' || prior?.status === 'RUNNING')) return { status: 'SKIPPED', reason: 'ALREADY_DONE' } as const;
+  const prior = await getDb().prepare(`SELECT id, status,
+    datetime(started_at)>=datetime('now', '-2 hours') AS active
+    FROM job_runs WHERE job_name=? ORDER BY id DESC LIMIT 1`).bind(jobName)
+    .first<{ id: number; status: string; active: number }>();
+  if (!force && (prior?.status === 'SUCCESS' || prior?.status === 'PARTIAL'
+    || (prior?.status === 'RUNNING' && prior.active))) return { status: 'SKIPPED', reason: 'ALREADY_DONE' } as const;
+  if (prior?.status === 'RUNNING' && !prior.active) {
+    await getDb().prepare(`UPDATE job_runs SET finished_at=CURRENT_TIMESTAMP, status='FAILED',
+      error_message='2시간 이상 응답이 없어 만료 처리됨' WHERE id=?`).bind(prior.id).run();
+  }
   const job = await getDb().prepare(`INSERT INTO job_runs (job_name, status) VALUES (?, 'RUNNING') RETURNING id`).bind(jobName).first<{ id: number }>();
   if (!job) throw new Error('일일 업데이트 기록을 만들지 못했습니다.');
   try {
@@ -70,5 +78,9 @@ export async function refreshKeylessMacro(credentials: ProviderCredentials) {
     }
   }
   if (treasuryUpdated) await refreshTreasurySpread();
+  if (results.some((item) => item.status === 'SUCCESS')) {
+    await recalculateScores();
+    await evaluateForecastResults();
+  }
   return results;
 }
