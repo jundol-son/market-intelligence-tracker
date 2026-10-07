@@ -30,6 +30,10 @@ import { EmailRecipients, type EmailRecipient } from '@/components/email-recipie
 
 type Asset = AssetInput & { id: number; createdAt: string; updatedAt: string };
 type ProviderQuota = { limit: number; used: number; remaining: number; providerLimited: boolean };
+type HealthState = {
+  status: string;
+  providers: { alphaConfigured: boolean; naverConfigured: boolean; kisConfigured: boolean };
+};
 type MarketSnapshot = {
   id: number; symbol: string; name: string; date: string | null; price: number | null;
   return1d: number | null; return5d: number | null; return20d: number | null; return60d: number | null;
@@ -197,6 +201,9 @@ export default function Home() {
   const [analytics, setAnalytics] = useState<AnalyticsState | null>(null);
   const [weights, setWeights] = useState<ScoreWeight[]>(DEFAULT_WEIGHTS);
   const [dbReady, setDbReady] = useState(false);
+  const [providerHealth, setProviderHealth] = useState<HealthState['providers']>({
+    alphaConfigured: false, naverConfigured: false, kisConfigured: false,
+  });
   const [loading, setLoading] = useState(true);
   const [adminToken, setAdminToken] = useState(() => typeof location !== 'undefined' && location.hostname === 'localhost' ? 'local-dev-only' : '');
   const [editing, setEditing] = useState<Asset | null>(null);
@@ -290,7 +297,7 @@ export default function Home() {
     let active = true;
     Promise.all([
       api<{ assets: Asset[] }>('/api/assets'),
-      api<{ status: string }>('/api/health'),
+      api<HealthState>('/api/health'),
       api<{ market: MarketSnapshot[]; scores: MarketScore | null; kis: KisDashboard }>('/api/dashboard'),
     ]).then(([assetData, health, dashboard]) => {
       if (!active) return;
@@ -299,6 +306,7 @@ export default function Home() {
       setScores(dashboard.scores);
       setKis(dashboard.kis);
       setDbReady(health.status === 'ok');
+      setProviderHealth(health.providers);
     }).catch((error: Error) => active && setMessage(error.message))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -613,7 +621,7 @@ export default function Home() {
             </button>
           ))}
         </nav>
-        <Status dbReady={dbReady} />
+        <Status dbReady={dbReady} providers={providerHealth} />
       </aside>
 
       <section className="min-w-0">
@@ -721,8 +729,11 @@ function Brand() {
   return <div className="flex items-center gap-3 px-2"><span className="grid size-10 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground"><ChartNoAxesCombined className="size-5" /></span><div><p className="font-semibold tracking-tight">Market Intel</p><p className="text-xs text-slate-400">Signal desk</p></div></div>;
 }
 
-function Status({ dbReady }: { dbReady: boolean }) {
-  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">Cloudflare Free · Phase 13</p></div>;
+function Status({ dbReady, providers }: { dbReady: boolean; providers: HealthState['providers'] }) {
+  const connected = [
+    ['Alpha', providers.alphaConfigured], ['NAVER', providers.naverConfigured], ['KIS', providers.kisConfigured],
+  ] as const;
+  return <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-sm font-medium"><span className={`size-2 rounded-full ${dbReady ? 'bg-emerald-400 shadow-[0_0_12px_theme(colors.emerald.400)]' : 'bg-amber-400'}`} />{dbReady ? 'D1 연결됨' : 'D1 확인 중'}</div><p className="mt-2 text-xs leading-5 text-slate-400">{connected.map(([name, ready]) => `${name} ${ready ? '연결' : '미연결'}`).join(' · ')}</p></div>;
 }
 
 function Dashboard({ assets, market, scores, kis, loading }: { assets: Asset[]; market: MarketSnapshot[]; scores: MarketScore | null; kis: KisDashboard; loading: boolean }) {
