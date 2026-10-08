@@ -40,6 +40,10 @@ assert.throws(
   () => parseAlphaVantageNews({ Information: 'API key SECRET reached 25 requests per day' }, 'NVDA'),
   (error: unknown) => error instanceof Error && !error.message.includes('SECRET') && /호출 한도/.test(error.message),
 );
+assert.throws(
+  () => parseAlphaVantageNews({ Information: 'This endpoint is for premium users only. API key SECRET' }, 'NVDA'),
+  (error: unknown) => error instanceof Error && !error.message.includes('SECRET') && /무료 플랜/.test(error.message),
+);
 assert.equal(detectDivergence(-1.2, 70), 'PRICE_DOWN_NEWS_POSITIVE');
 assert.equal(detectDivergence(1.2, 30), 'PRICE_UP_NEWS_NEGATIVE');
 assert.equal(detectDivergence(0.1, 30), null);

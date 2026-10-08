@@ -83,8 +83,14 @@ const yahoo = new Map<string, YahooSource>(Object.entries({
 } as const));
 
 const naverNewsQueries = new Map(Object.entries({
+  SP500: 'S&P 500', NASDAQ100: '나스닥 100', SOX: '필라델피아 반도체',
   KOSPI: '코스피', KOSDAQ: '코스닥', '005930': '삼성전자',
-  '000660': 'SK하이닉스', '091160': 'KODEX 반도체',
+  '000660': 'SK하이닉스', '091160': 'KODEX 반도체', NVDA: '엔비디아',
+  USDKRW: '원달러 환율', USDJPY: '달러 엔 환율', DXY: '달러 인덱스',
+  US2Y: '미국 2년물 국채금리', US10Y: '미국 10년물 국채금리',
+  US10Y2Y: '미국 장단기 금리차', VIX: 'VIX 변동성지수',
+  HY_OAS: '미국 하이일드 채권', WTI: 'WTI 유가', BRENT: '브렌트유',
+  USO: 'USO ETF', BNO: 'BNO ETF', GLD: '금 GLD ETF', IBIT: '비트코인 IBIT ETF',
 }));
 
 export const alphaSourceFor = (symbol: string): AlphaSource =>

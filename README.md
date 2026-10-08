@@ -34,8 +34,8 @@
 
 ## Phase 5
 
-- Alpha Vantage `NEWS_SENTIMENT` 자산별 수동 수집 + 6시간 구간별 최대 1회 최신 뉴스 묶음 자동 수집
-- NAVER API HUB 국내 지수·주식·ETF 뉴스 검색과 21일 보관 만료 자동 정리
+- NAVER API HUB 국내외 지수·주식·ETF·환율·금리·원자재 뉴스 검색과 6시간 순환 자동 수집
+- NAVER 검색 결과 21일 보관 만료 자동 정리, 분석 전 기사는 `미분석`으로 명시
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시
@@ -81,7 +81,7 @@ Analytics는 기존 Report Snapshot과 `forecast_results`를 읽기 전용으로
 
 - `POST /api/admin/bootstrap`: 기준 명세 지표와 한국 대표 자산 25개를 API 호출 없이 중복 안전하게 등록
 - `POST /api/admin/collect`: 중요도 순으로 최대 1~10개(화면 기본 5개) 일괄 수집
-- Alpha Vantage 가격·뉴스 공용 25회/24시간 예산과 가격 18시간·뉴스 5시간 중복 호출 방지
+- Alpha Vantage 가격 25회/24시간 예산과 가격 18시간 중복 호출 방지
 - KOSPI·KOSDAQ·삼성전자·SK하이닉스·KODEX 반도체 및 글로벌 주식/ETF, FX, Treasury Yield, WTI·Brent 최근월물 선물 지원
 - 금과 비트코인은 실제 수집 상품인 `GLD`, `IBIT` ETF로 고정해 공급자 설정에 따라 현물과 ETF 이력이 섞이지 않음
 - US 10Y-2Y Spread를 저장된 두 금리에서 추가 API 호출 없이 계산
@@ -183,7 +183,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 ## 무료 플랜 주의사항
 
-가격과 뉴스 수집은 같은 Alpha Vantage 무료 호출 한도를 공유합니다. 자동 뉴스는 개별 자산마다 호출하지 않고 6시간 구간별 최대 1회(하루 최대 4회) 최신 100건을 받아 응답의 ticker sentiment를 관심 자산에 배분합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며, 최근 24시간 25회에 도달하면 외부 호출 전에 차단합니다. 화면의 잔여 횟수는 이 앱의 기록만 반영하므로 같은 키를 로컬·다른 앱에서 쓴 호출은 포함하지 않습니다. 공급자가 실제 일일 한도 초과를 반환하면 해당 기록을 감지해 24시간 추가 호출을 차단합니다. 주식/ETF compact 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
+Alpha Vantage 무료 키는 가격 수집에만 사용합니다. `NEWS_SENTIMENT`가 Premium 전용 응답을 반환하므로 자동 뉴스는 NAVER API HUB에서 국내외 추적 자산을 6시간마다 한 종목씩 순환 검색합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며 같은 검색은 5시간 안에 반복하지 않습니다. 주식/ETF compact 가격 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
 
 KIS는 지원되는 국내 지수·주식·ETF와 해외 주식·ETF의 조회 전용 시세 수집에 우선 사용합니다. 한 종목당 최신 일봉을 저장하고 18시간 중복 호출을 막으며, 환율은 무료 Yahoo 일봉, 미국 2년·10년 금리는 미국 재무부 공식 일일 수익률을 사용해 주기적으로 갱신합니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
 
