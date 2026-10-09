@@ -893,7 +893,7 @@ function News({ news, loading }: { news: NewsData; loading: boolean }) {
   if (loading && news.events.length === 0) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
   return <div className="space-y-6">
     <section className={`rounded-2xl border p-4 text-sm ${news.providers.naverConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-      국내 뉴스 · NAVER API HUB {news.providers.naverConfigured ? '연결됨' : '인증 정보 미설정'} · 기사 감성은 분석 전까지 미분석으로 표시됩니다.
+      국내외 뉴스 · NAVER Search {news.providers.naverConfigured ? '연결됨' : '인증 정보 미설정'} · 기사 감성은 분석 전까지 미분석으로 표시됩니다.
     </section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {news.scores.map((item) => <article key={item.assetId} className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{item.name}</p><p className="text-xs text-muted-foreground">{item.symbol} · {item.eventCount} events</p></div><strong className={`text-2xl tabular-nums ${item.score >= 60 ? 'text-emerald-600' : item.score <= 40 ? 'text-rose-600' : ''}`}>{item.score.toFixed(1)}</strong></div>{item.divergence && <p className="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800"><AlertTriangle className="size-4" />{item.divergence === 'PRICE_UP_NEWS_NEGATIVE' ? '악재에도 가격이 상승 중' : '호재에도 가격이 하락 중'}</p>}</article>)}

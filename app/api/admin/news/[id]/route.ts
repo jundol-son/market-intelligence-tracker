@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (!query && !ticker) return json({ error: `${asset.symbol}은 뉴스 공급자와 연결되지 않았습니다.` }, 400);
     const isNaver = Boolean(query);
     if (isNaver && (!env.NAVER_API_HUB_CLIENT_ID || !env.NAVER_API_HUB_CLIENT_SECRET)) {
-      return json({ error: 'NAVER API HUB 인증 정보가 설정되지 않았습니다.' }, 503);
+      return json({ error: 'NAVER 뉴스 인증 정보가 설정되지 않았습니다.' }, 503);
     }
     if (!isNaver && !env.ALPHA_VANTAGE_API_KEY) {
       return json({ error: 'ALPHA_VANTAGE_API_KEY가 설정되지 않았습니다.' }, 503);
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const reservation = await reserveProviderCall(`${isNaver ? 'NAVER_API' : 'ALPHA_API'}:NEWS:${asset.symbol}`, isNaver ? 18 : 24);
     if (!reservation.reserved) {
       return json({ collection: { assetId: asset.id, symbol: asset.symbol, called: false,
-        provider: isNaver ? 'NAVER API HUB' : 'Alpha Vantage', reason: reservation.reason }, quota: await providerUsage() });
+        provider: isNaver ? 'NAVER Search' : 'Alpha Vantage', reason: reservation.reason }, quota: await providerUsage() });
     }
     try {
       const articles = isNaver
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       const result = await saveNews(asset.id, articles);
       await finishProviderCall(reservation.id);
       return json({ collection: { assetId: asset.id, symbol: asset.symbol, called: true,
-        provider: isNaver ? 'NAVER API HUB' : 'Alpha Vantage', ...result }, quota: await providerUsage() });
+        provider: isNaver ? 'NAVER Search' : 'Alpha Vantage', ...result }, quota: await providerUsage() });
     } catch (error) {
       await finishProviderCall(reservation.id, error);
       throw error;

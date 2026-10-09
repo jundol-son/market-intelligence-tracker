@@ -229,10 +229,10 @@ export class NaverNewsProvider implements NewsProvider {
   }
 
   async getNews(query: string): Promise<NewsArticle[]> {
-    const url = new URL('https://naverapihub.apigw.ntruss.com/search/v1/news');
+    const url = new URL('https://openapi.naver.com/v1/search/news.json');
     url.search = new URLSearchParams({ query, display: '50', start: '1', sort: 'date', format: 'json' }).toString();
     const response = await fetch(url, {
-      headers: { 'X-NCP-APIGW-API-KEY-ID': this.clientId, 'X-NCP-APIGW-API-KEY': this.clientSecret },
+      headers: { 'X-Naver-Client-Id': this.clientId, 'X-Naver-Client-Secret': this.clientSecret },
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`NAVER 뉴스 공급자 요청 실패 (${response.status})`);

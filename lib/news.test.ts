@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, detectDivergence, isDuplicateEvent, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget } from './news.ts';
+import { calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -31,6 +31,22 @@ assert.equal(naver[0].source, 'NAVER Search · news.example.kr');
 assert.equal(naver[0].sentiment, 'UNANALYZED');
 assert.equal(naver[0].impactScore, 0);
 assert.equal(parseNaverNews({ items: [{ title: '잘못된 링크', originallink: 'http://', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' }] }).length, 0);
+const originalFetch = globalThis.fetch;
+let naverRequest: { url?: string; headers?: HeadersInit } = {};
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  naverRequest = { url, headers: init?.headers };
+  return new Response(JSON.stringify({ items: [] }));
+};
+try {
+  await new NaverNewsProvider('client-id', 'client-secret').getNews('삼성전자');
+  assert.match(naverRequest.url!, /^https:\/\/openapi\.naver\.com\/v1\/search\/news\.json\?/);
+  assert.deepEqual(naverRequest.headers, {
+    'X-Naver-Client-Id': 'client-id', 'X-Naver-Client-Secret': 'client-secret',
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
 assert.equal(parseAlphaVantageNews({ feed: [{
   title: 'Unrelated company merely mentions Nvidia', summary: 'Brief mention.', source: 'Example',
   url: 'https://example.com/mention', time_published: '20260906T100000',

@@ -34,7 +34,7 @@
 
 ## Phase 5
 
-- NAVER API HUB 국내외 지수·주식·ETF·환율·금리·원자재 뉴스 검색과 6시간 순환 자동 수집
+- NAVER Search 국내외 지수·주식·ETF·환율·금리·원자재 뉴스 검색과 6시간 순환 자동 수집
 - NAVER 검색 결과 21일 보관 만료 자동 정리, 분석 전 기사는 `미분석`으로 명시
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
@@ -159,7 +159,7 @@ npm run build
 | `ADMIN_PASSWORD` | 사용자 설정 필요 | 운영 Worker Secret; 소스·D1·브라우저 저장소에 보관하지 않음 |
 | `ADMIN_TOKEN` | 호환 유지 | 기존 운영 인증이 끊기지 않도록 임시 fallback으로만 사용 |
 | `ALPHA_VANTAGE_API_KEY` | 생성·설정됨 | 로컬 `.dev.vars`, 운영 Worker Secret |
-| `NAVER_API_HUB_CLIENT_ID` / `NAVER_API_HUB_CLIENT_SECRET` | 발급·설정 필요 | NAVER API HUB 뉴스 검색 인증 정보; 로컬 `.dev.vars`, 운영 Worker Secret |
+| `NAVER_API_HUB_CLIENT_ID` / `NAVER_API_HUB_CLIENT_SECRET` | 기존 키 설정 | NAVER Developers 뉴스 검색 인증 정보; 로컬 `.dev.vars`, 운영 Worker Secret |
 | `KIS_APP_KEY` / `KIS_APP_SECRET` | 사용자 설정 완료 | 운영 Worker Secret; 조회 전용 시세 인증에만 사용 |
 | `CLOUDFLARE_D1_DATABASE_ID` | 설정됨 | Cloudflare 암호화 빌드 변수 |
 | `DB` binding | 운영 연결됨 | `market-intelligence-tracker-db` |
@@ -183,7 +183,7 @@ Cloudflare Workers Git 배포가 `main`에 연결되어 있습니다. 운영 URL
 
 ## 무료 플랜 주의사항
 
-Alpha Vantage 무료 키는 가격 수집에만 사용합니다. `NEWS_SENTIMENT`가 Premium 전용 응답을 반환하므로 자동 뉴스는 NAVER API HUB에서 국내외 추적 자산을 6시간마다 한 종목씩 순환 검색합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며 같은 검색은 5시간 안에 반복하지 않습니다. 주식/ETF compact 가격 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
+Alpha Vantage 무료 키는 가격 수집에만 사용합니다. `NEWS_SENTIMENT`가 Premium 전용 응답을 반환하므로 자동 뉴스는 기존 NAVER Developers 검색 키로 국내외 추적 자산을 6시간마다 한 종목씩 순환 검색합니다. 이 키는 공식 유예 기간인 2027-06-30까지만 사용할 수 있으므로 그 전에 NAVER API HUB로 이관해야 합니다. 호출 예약과 결과는 기존 `job_runs`에 기록되며 같은 검색은 5시간 안에 반복하지 않습니다. 주식/ETF compact 가격 응답은 100개이므로 MA120/200은 데이터가 누적될 때까지 `null`일 수 있습니다.
 
 KIS는 지원되는 국내 지수·주식·ETF와 해외 주식·ETF의 조회 전용 시세 수집에 우선 사용합니다. 한 종목당 최신 일봉을 저장하고 18시간 중복 호출을 막으며, 환율은 무료 Yahoo 일봉, 미국 2년·10년 금리는 미국 재무부 공식 일일 수익률을 사용해 주기적으로 갱신합니다. 주문·정정·취소·잔고·계좌 API와 주문용 hashkey는 코드에 없으며 계좌번호도 환경 변수나 D1에 저장하지 않습니다.
 
