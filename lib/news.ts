@@ -121,10 +121,27 @@ export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArtic
   });
 }
 
-export function parseNaverNews(input: unknown): NewsArticle[] {
+function naverRelevance(title: string, summary: string, query: string): number {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const compact = (value: string) => normalize(value).replace(/\s+/g, '');
+  const titleText = normalize(title);
+  const queryText = normalize(query);
+  if (!queryText) return 0;
+  if (compact(title).includes(compact(query))) return 1;
+  const tokens = queryText.split(/\s+/).filter((token) => token.length > 1 || /\d/.test(token));
+  if (!tokens.length) return 0;
+  if (tokens.every((token) => titleText.includes(token))) return 0.9;
+  const combined = `${titleText} ${normalize(summary)}`;
+  return tokens.length > 1
+    && tokens.every((token) => combined.includes(token))
+    && tokens.some((token) => titleText.includes(token)) ? 0.8 : 0;
+}
+
+export function parseNaverNews(input: unknown, query: string): NewsArticle[] {
   if (!input || typeof input !== 'object' || !Array.isArray((input as Record<string, unknown>).items)) {
     throw new Error('NAVER 뉴스 응답 형식이 올바르지 않습니다.');
   }
+  const sourceCounts = new Map<string, number>();
   return ((input as Record<string, unknown>).items as unknown[]).flatMap((raw) => {
     if (!raw || typeof raw !== 'object') return [];
     const row = raw as Record<string, unknown>;
@@ -140,13 +157,16 @@ export function parseNaverNews(input: unknown): NewsArticle[] {
       return [];
     }
     if (!host) return [];
+    const relevanceScore = naverRelevance(title, summary, query);
+    if (relevanceScore < 0.7 || (sourceCounts.get(host) ?? 0) >= 2) return [];
+    sourceCounts.set(host, (sourceCounts.get(host) ?? 0) + 1);
     return [{
       title, summary, category: 'Other' as const, eventTime: new Date(published).toISOString(),
       source: `NAVER Search · ${host}`, sourceUrl, sourceRank: sourceRank(host, sourceUrl),
       sentiment: 'UNANALYZED' as const, sentimentScore: 0, impactScore: 0,
-      confidenceScore: 0, durationType: 'SHORT_TERM' as const, relevanceScore: 1,
+      confidenceScore: 0, durationType: 'SHORT_TERM' as const, relevanceScore,
     }];
-  });
+  }).slice(0, 12);
 }
 
 const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'at', 'by', 'from']);
@@ -189,8 +209,14 @@ export function detectDivergence(return1d: number | null, newsScore: number): st
 }
 
 export function selectPeriodicNewsTarget<T>(targets: T[], now: Date): T | undefined {
-  if (!targets.length) return undefined;
-  return targets[Math.floor(now.getTime() / 21_600_000) % targets.length];
+  return selectPeriodicNewsTargets(targets, now, 1)[0];
+}
+
+export function selectPeriodicNewsTargets<T>(targets: T[], now: Date, count: number): T[] {
+  if (!targets.length || count < 1) return [];
+  const size = Math.min(Math.floor(count), targets.length);
+  const start = Math.floor(now.getTime() / 21_600_000) * size % targets.length;
+  return Array.from({ length: size }, (_, index) => targets[(start + index) % targets.length]);
 }
 
 export interface NewsProvider {
@@ -236,6 +262,6 @@ export class NaverNewsProvider implements NewsProvider {
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`NAVER 뉴스 공급자 요청 실패 (${response.status})`);
-    return parseNaverNews(await response.json());
+    return parseNaverNews(await response.json(), query);
   }
 }

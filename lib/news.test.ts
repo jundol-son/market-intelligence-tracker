@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget } from './news.ts';
+import { calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -20,17 +20,33 @@ const targets = ['NVDA', 'SPY', 'CRYPTO:BTC'];
 const slot = 21_600_000;
 assert.deepEqual([0, 1, 2, 3].map((index) => selectPeriodicNewsTarget(targets, new Date(index * slot))), ['NVDA', 'SPY', 'CRYPTO:BTC', 'NVDA']);
 assert.equal(selectPeriodicNewsTarget([], new Date(0)), undefined);
+assert.deepEqual(selectPeriodicNewsTargets(['A', 'B', 'C', 'D', 'E', 'F'], new Date(0), 3), ['A', 'B', 'C']);
+assert.deepEqual(selectPeriodicNewsTargets(['A', 'B', 'C', 'D', 'E', 'F'], new Date(slot), 3), ['D', 'E', 'F']);
 const naver = parseNaverNews({ items: [{
   title: '<b>삼성전자</b>, 반도체 투자 확대', description: 'AI &amp; 반도체 생산을 늘립니다.',
   originallink: 'https://news.example.kr/article/1', link: 'https://n.news.naver.com/article/1',
   pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900',
-}] });
+}] }, '삼성전자');
 assert.equal(naver[0].title, '삼성전자, 반도체 투자 확대');
 assert.equal(naver[0].summary, 'AI & 반도체 생산을 늘립니다.');
 assert.equal(naver[0].source, 'NAVER Search · news.example.kr');
 assert.equal(naver[0].sentiment, 'UNANALYZED');
 assert.equal(naver[0].impactScore, 0);
-assert.equal(parseNaverNews({ items: [{ title: '잘못된 링크', originallink: 'http://', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' }] }).length, 0);
+assert.equal(parseNaverNews({ items: [{ title: '잘못된 링크', originallink: 'http://', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' }] }, '잘못된 링크').length, 0);
+assert.equal(parseNaverNews({ items: [{
+  title: '비트코인 가격 급등', description: '시장에서는 브렌트유도 함께 언급됐다.',
+  originallink: 'https://crypto.example.kr/1', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900',
+}] }, '브렌트유').length, 0);
+const diverse = parseNaverNews({ items: [
+  { title: '브렌트유 가격 상승 1', originallink: 'https://a.example.kr/1', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' },
+  { title: '브렌트유 가격 상승 2', originallink: 'https://a.example.kr/2', pubDate: 'Tue, 29 Sep 2026 09:00:00 +0900' },
+  { title: '브렌트유 가격 상승 3', originallink: 'https://a.example.kr/3', pubDate: 'Tue, 29 Sep 2026 08:00:00 +0900' },
+  { title: '브렌트유 가격 하락', originallink: 'https://b.example.kr/1', pubDate: 'Tue, 29 Sep 2026 07:00:00 +0900' },
+] }, '브렌트유');
+assert.equal(diverse.length, 3);
+assert.deepEqual(diverse.map((item) => item.source), [
+  'NAVER Search · a.example.kr', 'NAVER Search · a.example.kr', 'NAVER Search · b.example.kr',
+]);
 const originalFetch = globalThis.fetch;
 let naverRequest: { url?: string; headers?: HeadersInit } = {};
 globalThis.fetch = async (input, init) => {
