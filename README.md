@@ -36,6 +36,7 @@
 
 - NAVER Search 국내외 지수·주식·ETF·환율·금리·원자재 뉴스 검색과 6시간마다 3종목 순환 자동 수집
 - NAVER 검색 결과 21일 보관 만료 자동 정리, 분석 전 기사는 `미분석`으로 명시
+- 최근 뉴스 후보를 자산별 우선 노출 상한으로 재배열해 단일 종목의 화면 점유 완화
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시

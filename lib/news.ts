@@ -221,6 +221,25 @@ export function selectPeriodicNewsTargets<T>(targets: T[], now: Date, count: num
   return Array.from({ length: size }, (_, index) => targets[(start + index) % targets.length]);
 }
 
+export function diversifyNewsEvents<T extends { assets: Array<{ assetId: unknown }> }>(
+  events: T[], limit: number, perAssetLimit = Math.max(3, Math.ceil(limit / 5)),
+): T[] {
+  const selected: T[] = [];
+  const overflow: T[] = [];
+  const counts = new Map<unknown, number>();
+  const cap = Math.max(1, Math.floor(perAssetLimit));
+  for (const event of events) {
+    const assetIds = [...new Set(event.assets.map((asset) => asset.assetId))];
+    if (assetIds.some((assetId) => (counts.get(assetId) ?? 0) < cap)) {
+      selected.push(event);
+      for (const assetId of assetIds) counts.set(assetId, (counts.get(assetId) ?? 0) + 1);
+    } else {
+      overflow.push(event);
+    }
+  }
+  return [...selected, ...overflow].slice(0, Math.max(0, Math.floor(limit)));
+}
+
 export interface NewsProvider {
   getNews(symbol: string): Promise<NewsArticle[]>;
 }

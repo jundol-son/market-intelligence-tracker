@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
+import { calculateNewsScore, detectDivergence, diversifyNewsEvents, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -22,6 +22,10 @@ assert.deepEqual([0, 1, 2, 3].map((index) => selectPeriodicNewsTarget(targets, n
 assert.equal(selectPeriodicNewsTarget([], new Date(0)), undefined);
 assert.deepEqual(selectPeriodicNewsTargets(['A', 'B', 'C', 'D', 'E', 'F'], new Date(0), 3), ['A', 'B', 'C']);
 assert.deepEqual(selectPeriodicNewsTargets(['A', 'B', 'C', 'D', 'E', 'F'], new Date(slot), 3), ['D', 'E', 'F']);
+const mixedEvents = [1, 2, 3, 4].map((id) => ({ id: `A${id}`, assets: [{ assetId: 'A' }] }));
+mixedEvents.splice(2, 0, { id: 'B1', assets: [{ assetId: 'B' }] }, { id: 'C1', assets: [{ assetId: 'C' }] });
+assert.deepEqual(diversifyNewsEvents(mixedEvents, 4, 2).map((event) => event.id), ['A1', 'A2', 'B1', 'C1']);
+assert.deepEqual(diversifyNewsEvents(mixedEvents.slice(0, 2), 2, 1).map((event) => event.id), ['A1', 'A2']);
 const naver = parseNaverNews({ items: [{
   title: '<b>삼성전자</b>, 반도체 투자 확대', description: 'AI &amp; 반도체 생산을 늘립니다.',
   originallink: 'https://news.example.kr/article/1', link: 'https://n.news.naver.com/article/1',

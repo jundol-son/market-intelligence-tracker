@@ -2,7 +2,7 @@ import { getDb } from './index';
 import { listAssets } from './assets';
 import { finishProviderCall, reserveProviderCall } from './provider-usage';
 import {
-  AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, isDuplicateEvent, NaverNewsProvider, newsFingerprint,
+  AlphaVantageNewsProvider, calculateNewsScore, detectDivergence, diversifyNewsEvents, isDuplicateEvent, NaverNewsProvider, newsFingerprint,
   selectPeriodicNewsTarget, selectPeriodicNewsTargets, type NewsArticle,
 } from '@/lib/news';
 import { naverNewsQueryFor, newsTickerFor } from '@/lib/catalog';
@@ -162,6 +162,7 @@ export async function collectPeriodicNaverNews(clientId?: string, clientSecret?:
 
 export async function listNews(limit = 50) {
   const db = getDb();
+  const candidateLimit = Math.min(limit * 3, 300);
   const [events, sources, assets, scores] = await Promise.all([
     db.prepare(`SELECT id, title, summary, category, event_time AS eventTime,
       sentiment, sentiment_score AS sentimentScore, impact_score AS impactScore,
@@ -169,31 +170,33 @@ export async function listNews(limit = 50) {
       is_duplicate_group AS isDuplicateGroup, created_at AS createdAt
       FROM news_events e WHERE EXISTS (SELECT 1 FROM news_event_assets m
         WHERE m.event_id=e.id AND m.relevance_score>=0.7)
-      ORDER BY event_time DESC, id DESC LIMIT ?`).bind(limit).all(),
+      ORDER BY event_time DESC, id DESC LIMIT ?`).bind(candidateLimit).all(),
     db.prepare(`SELECT event_id AS eventId, source, source_url AS sourceUrl,
       source_rank AS sourceRank, published_at AS publishedAt FROM news_sources
       WHERE event_id IN (SELECT e.id FROM news_events e WHERE EXISTS
         (SELECT 1 FROM news_event_assets m WHERE m.event_id=e.id AND m.relevance_score>=0.7)
         ORDER BY event_time DESC, id DESC LIMIT ?)
-      ORDER BY source_rank, id`).bind(limit).all(),
+      ORDER BY source_rank, id`).bind(candidateLimit).all(),
     db.prepare(`SELECT m.event_id AS eventId, m.asset_id AS assetId, a.symbol, a.name,
       m.relevance_score AS relevanceScore FROM news_event_assets m JOIN assets a ON a.id=m.asset_id
       WHERE m.relevance_score>=0.7 AND m.event_id IN (SELECT e.id FROM news_events e WHERE EXISTS
         (SELECT 1 FROM news_event_assets x WHERE x.event_id=e.id AND x.relevance_score>=0.7)
         ORDER BY event_time DESC, id DESC LIMIT ?)
-      ORDER BY m.relevance_score DESC`).bind(limit).all(),
+      ORDER BY m.relevance_score DESC`).bind(candidateLimit)
+      .all<{ eventId: number; assetId: number; symbol: string; name: string; relevanceScore: number }>(),
     db.prepare(`SELECT n.asset_id AS assetId, a.symbol, a.name, n.date, n.score,
       n.event_count AS eventCount, n.divergence FROM news_scores n JOIN assets a ON a.id=n.asset_id
       WHERE n.id IN (SELECT MAX(id) FROM news_scores GROUP BY asset_id)
         AND date(n.date)>=date('now', '-3 days') ORDER BY n.score DESC`).all(),
   ]);
+  const mappedEvents = events.results.map((event) => ({
+    ...event,
+    isDuplicateGroup: Boolean(event.isDuplicateGroup),
+    sources: sources.results.filter((source) => source.eventId === event.id),
+    assets: assets.results.filter((asset) => asset.eventId === event.id),
+  }));
   return {
-    events: events.results.map((event) => ({
-      ...event,
-      isDuplicateGroup: Boolean(event.isDuplicateGroup),
-      sources: sources.results.filter((source) => source.eventId === event.id),
-      assets: assets.results.filter((asset) => asset.eventId === event.id),
-    })),
+    events: diversifyNewsEvents(mappedEvents, limit),
     scores: scores.results,
   };
 }
