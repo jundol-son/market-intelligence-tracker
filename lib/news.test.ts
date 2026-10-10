@@ -37,6 +37,10 @@ assert.equal(parseNaverNews({ items: [{
   title: '비트코인 가격 급등', description: '시장에서는 브렌트유도 함께 언급됐다.',
   originallink: 'https://crypto.example.kr/1', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900',
 }] }, '브렌트유').length, 0);
+assert.equal(parseNaverNews({ items: [{
+  title: 'SK하이닉스 퇴직자, 악성림프종 투병', description: '회사에서 오래 근무한 개인의 사연입니다.',
+  originallink: 'https://people.example.kr/1', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900',
+}] }, 'SK하이닉스').length, 0);
 const diverse = parseNaverNews({ items: [
   { title: '브렌트유 가격 상승 1', originallink: 'https://a.example.kr/1', pubDate: 'Tue, 29 Sep 2026 10:00:00 +0900' },
   { title: '브렌트유 가격 상승 2', originallink: 'https://a.example.kr/2', pubDate: 'Tue, 29 Sep 2026 09:00:00 +0900' },

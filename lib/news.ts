@@ -121,12 +121,14 @@ export function parseAlphaVantageNews(input: unknown, symbol: string): NewsArtic
   });
 }
 
+const MARKET_CONTEXT = /주가|증시|시장|투자|거래|상장|인수|합병|실적|매출|영업이익|순이익|적자|흑자|배당|자사주|공시|전망|목표가|등급|계약|수주|공급|생산|수출|판매|출시|신제품|정책|제재|관세|규제|소송|경영|대표|회장|ceo|금리|환율|달러|엔화|원화|국채|채권|유가|원유|브렌트|wti|가격|지수|etf|펀드|선물|옵션|반도체|ai|hbm|나스닥|코스피|코스닥|월가|연준|한국은행|경제|산업|경기|고용|물가|상승|하락|급등|급락|강세|약세|시가총액|주주|증권/i;
+
 function naverRelevance(title: string, summary: string, query: string): number {
   const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const compact = (value: string) => normalize(value).replace(/\s+/g, '');
   const titleText = normalize(title);
   const queryText = normalize(query);
-  if (!queryText) return 0;
+  if (!queryText || !MARKET_CONTEXT.test(`${title} ${summary}`)) return 0;
   if (compact(title).includes(compact(query))) return 1;
   const tokens = queryText.split(/\s+/).filter((token) => token.length > 1 || /\d/.test(token));
   if (!tokens.length) return 0;
