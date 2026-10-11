@@ -9,6 +9,7 @@ export const NEWS_CATEGORIES = [
 
 export type NewsSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED' | 'UNANALYZED';
 export type NewsDuration = 'INTRADAY' | 'SHORT_TERM' | 'MEDIUM_TERM' | 'LONG_TERM';
+export type NewsFreshness = 'FRESH' | 'TODAY' | 'STALE' | 'UNKNOWN';
 
 export type NewsArticle = {
   title: string;
@@ -208,6 +209,16 @@ export function detectDivergence(return1d: number | null, newsScore: number): st
   if (return1d >= 0.5 && newsScore <= 40) return 'PRICE_UP_NEWS_NEGATIVE';
   if (return1d <= -0.5 && newsScore >= 60) return 'PRICE_DOWN_NEWS_POSITIVE';
   return null;
+}
+
+export function classifyNewsFreshness(eventTime: string, now = new Date()): NewsFreshness {
+  const publishedAt = Date.parse(eventTime);
+  const currentTime = now.getTime();
+  if (!Number.isFinite(publishedAt) || !Number.isFinite(currentTime)) return 'UNKNOWN';
+  const age = Math.max(0, currentTime - publishedAt);
+  if (age <= 6 * 60 * 60 * 1000) return 'FRESH';
+  if (age <= 24 * 60 * 60 * 1000) return 'TODAY';
+  return 'STALE';
 }
 
 export function selectPeriodicNewsTarget<T>(targets: T[], now: Date): T | undefined {

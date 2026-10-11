@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, detectDivergence, diversifyNewsEvents, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
+import { calculateNewsScore, classifyNewsFreshness, detectDivergence, diversifyNewsEvents, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -87,5 +87,12 @@ assert.throws(
 assert.equal(detectDivergence(-1.2, 70), 'PRICE_DOWN_NEWS_POSITIVE');
 assert.equal(detectDivergence(1.2, 30), 'PRICE_UP_NEWS_NEGATIVE');
 assert.equal(detectDivergence(0.1, 30), null);
+
+const freshnessNow = new Date('2026-10-11T00:00:00Z');
+assert.equal(classifyNewsFreshness('2026-10-10T18:00:00Z', freshnessNow), 'FRESH');
+assert.equal(classifyNewsFreshness('2026-10-10T12:00:00Z', freshnessNow), 'TODAY');
+assert.equal(classifyNewsFreshness('2026-10-09T23:59:59Z', freshnessNow), 'STALE');
+assert.equal(classifyNewsFreshness('2026-10-12T00:00:00Z', freshnessNow), 'FRESH');
+assert.equal(classifyNewsFreshness('not-a-date', freshnessNow), 'UNKNOWN');
 
 console.log('news engine: ok');

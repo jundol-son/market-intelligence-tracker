@@ -24,6 +24,7 @@ import { isCollectable, naverNewsQueryFor, newsTickerFor } from '@/lib/catalog';
 import { summarizeDataFreshness } from '@/lib/data-freshness';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { summarizeMarketChanges } from '@/lib/market-summary';
+import { classifyNewsFreshness, type NewsFreshness } from '@/lib/news';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 import { sparklinePoints } from '@/lib/sparkline';
 import { EmailRecipients, type EmailRecipient } from '@/components/email-recipients';
@@ -100,7 +101,7 @@ type ReportDetail = {
   }>;
 };
 type NewsEvent = {
-  id: number; title: string; summary: string; category: string; eventTime: string;
+  id: number; title: string; summary: string; category: string; eventTime: string; createdAt: string;
   sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED' | 'UNANALYZED'; impactScore: number;
   confidenceScore: number; durationType: string; isDuplicateGroup: boolean;
   sources: Array<{ source: string; sourceUrl: string; sourceRank: number }>;
@@ -137,6 +138,13 @@ type NotificationState = {
 type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'analytics' | 'watchlist' | 'admin';
 
 const assetLabel = (asset: { symbol: string; name: string }) => asset.name === asset.symbol ? asset.symbol : `${asset.name} (${asset.symbol})`;
+
+const NEWS_FRESHNESS: Record<NewsFreshness, { label: string; className: string }> = {
+  FRESH: { label: '최신 · 6시간 이내', className: 'bg-emerald-50 text-emerald-700' },
+  TODAY: { label: '오늘 · 24시간 이내', className: 'bg-blue-50 text-blue-700' },
+  STALE: { label: '지난 기사', className: 'bg-slate-100 text-slate-600' },
+  UNKNOWN: { label: '시각 미확인', className: 'bg-amber-50 text-amber-700' },
+};
 
 const sampleScores = [
   { label: 'Overall Market', value: 72, change: '+4', tone: 'text-emerald-600', bar: 'bg-emerald-500' },
@@ -899,7 +907,31 @@ function News({ news, loading }: { news: NewsData; loading: boolean }) {
       {news.scores.map((item) => <article key={item.assetId} className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{item.name}</p><p className="text-xs text-muted-foreground">{item.symbol} · {item.eventCount} events</p></div><strong className={`text-2xl tabular-nums ${item.score >= 60 ? 'text-emerald-600' : item.score <= 40 ? 'text-rose-600' : ''}`}>{item.score.toFixed(1)}</strong></div>{item.divergence && <p className="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800"><AlertTriangle className="size-4" />{item.divergence === 'PRICE_UP_NEWS_NEGATIVE' ? '악재에도 가격이 상승 중' : '호재에도 가격이 하락 중'}</p>}</article>)}
       {!news.scores.length && <article className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground sm:col-span-2">Admin에서 자산별 뉴스 수집을 실행하면 News Score가 생성됩니다.</article>}
     </section>
-    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="border-b px-5 py-4"><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">최신순을 유지하면서 자산별 편중을 완화하고, 동일 사건의 여러 보도는 하나의 Event로 묶습니다.</p></div><div className="divide-y">{news.events.map((event) => <article key={event.id} className="p-5"><div className="flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{event.category}</span><span className={`rounded-full px-2 py-1 font-semibold ${event.sentiment === 'POSITIVE' ? 'bg-emerald-50 text-emerald-700' : event.sentiment === 'NEGATIVE' ? 'bg-rose-50 text-rose-700' : event.sentiment === 'UNANALYZED' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'}`}>{event.sentiment === 'UNANALYZED' ? '미분석' : event.sentiment}</span><span className="text-muted-foreground">{event.sentiment === 'UNANALYZED' ? '기사 수집만 완료' : `Impact ${event.impactScore.toFixed(0)} · Confidence ${event.confidenceScore.toFixed(0)}`} · {event.durationType}</span></div><h3 className="mt-3 font-semibold leading-6">{event.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{event.summary}</p><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground"><span>{new Date(event.eventTime).toLocaleString('ko-KR')}</span><span>{event.assets.map(assetLabel).join(', ')}</span>{event.sources.map((source) => <a key={source.sourceUrl} href={source.sourceUrl} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline">{source.source}</a>)}</div></article>)}{!news.events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">수집된 News Event가 없습니다.</div>}</div></section>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]">
+      <div className="border-b px-5 py-4"><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">최신순을 유지하면서 자산별 편중을 완화하고, 실제 발행 시각 기준 신선도를 표시합니다.</p></div>
+      <div className="divide-y">
+        {news.events.map((event) => {
+          const freshness = NEWS_FRESHNESS[classifyNewsFreshness(event.eventTime)];
+          return <article key={event.id} className="p-5">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{event.category}</span>
+              <span className={`rounded-full px-2 py-1 font-semibold ${event.sentiment === 'POSITIVE' ? 'bg-emerald-50 text-emerald-700' : event.sentiment === 'NEGATIVE' ? 'bg-rose-50 text-rose-700' : event.sentiment === 'UNANALYZED' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'}`}>{event.sentiment === 'UNANALYZED' ? '미분석' : event.sentiment}</span>
+              <span className={`rounded-full px-2 py-1 font-semibold ${freshness.className}`}>{freshness.label}</span>
+              <span className="text-muted-foreground">{event.sentiment === 'UNANALYZED' ? '기사 수집만 완료' : `Impact ${event.impactScore.toFixed(0)} · Confidence ${event.confidenceScore.toFixed(0)}`} · {event.durationType}</span>
+            </div>
+            <h3 className="mt-3 font-semibold leading-6">{event.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.summary}</p>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
+              <span>발행 {new Date(event.eventTime).toLocaleString('ko-KR')}</span>
+              <span>수집 {new Date(event.createdAt).toLocaleString('ko-KR')}</span>
+              <span>{event.assets.map(assetLabel).join(', ')}</span>
+              {event.sources.map((source) => <a key={source.sourceUrl} href={source.sourceUrl} target="_blank" rel="noreferrer" className="font-medium text-blue-600 hover:underline">{source.source}</a>)}
+            </div>
+          </article>;
+        })}
+        {!news.events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">수집된 News Event가 없습니다.</div>}
+      </div>
+    </section>
   </div>;
 }
 
