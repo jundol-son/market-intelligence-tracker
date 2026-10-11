@@ -24,7 +24,7 @@ import { isCollectable, naverNewsQueryFor, newsTickerFor } from '@/lib/catalog';
 import { summarizeDataFreshness } from '@/lib/data-freshness';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { summarizeMarketChanges } from '@/lib/market-summary';
-import { classifyNewsFreshness, type NewsFreshness } from '@/lib/news';
+import { classifyNewsFreshness, filterNewsEvents, type NewsFreshness, type NewsFreshnessFilter } from '@/lib/news';
 import { DEFAULT_WEIGHTS, type ScoreWeight } from '@/lib/scoring';
 import { sparklinePoints } from '@/lib/sparkline';
 import { EmailRecipients, type EmailRecipient } from '@/components/email-recipients';
@@ -898,7 +898,15 @@ function Reports({ reports, detail, events, loading, onSelect }: { reports: Repo
 }
 
 function News({ news, loading }: { news: NewsData; loading: boolean }) {
+  const [assetFilter, setAssetFilter] = useState('ALL');
+  const [freshnessFilter, setFreshnessFilter] = useState<NewsFreshnessFilter>('ALL');
   if (loading && news.events.length === 0) return <div className="grid min-h-80 place-items-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  const assetOptions = [...new Map(news.events.flatMap((event) => event.assets.map((asset) => [asset.assetId, asset] as const))).values()]
+    .sort((a, b) => assetLabel(a).localeCompare(assetLabel(b), 'ko-KR'));
+  const effectiveAssetFilter = assetFilter === 'ALL' || assetOptions.some((asset) => String(asset.assetId) === assetFilter) ? assetFilter : 'ALL';
+  const freshnessNow = new Date();
+  const visibleEvents = filterNewsEvents(news.events, effectiveAssetFilter, freshnessFilter, freshnessNow);
+  const filterActive = effectiveAssetFilter !== 'ALL' || freshnessFilter !== 'ALL';
   return <div className="space-y-6">
     <section className={`rounded-2xl border p-4 text-sm ${news.providers.naverConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
       국내외 뉴스 · NAVER Search {news.providers.naverConfigured ? '연결됨' : '인증 정보 미설정'} · 기사 감성은 분석 전까지 미분석으로 표시됩니다.
@@ -908,10 +916,37 @@ function News({ news, loading }: { news: NewsData; loading: boolean }) {
       {!news.scores.length && <article className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground sm:col-span-2">Admin에서 자산별 뉴스 수집을 실행하면 News Score가 생성됩니다.</article>}
     </section>
     <section className="overflow-hidden rounded-2xl border bg-card shadow-[0_10px_30px_rgb(30_58_95/5%)]">
-      <div className="border-b px-5 py-4"><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">최신순을 유지하면서 자산별 편중을 완화하고, 실제 발행 시각 기준 신선도를 표시합니다.</p></div>
+      <div className="border-b px-5 py-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div><h2 className="font-semibold">News Events</h2><p className="mt-1 text-sm text-muted-foreground">최신순을 유지하면서 자산별 편중을 완화하고, 실제 발행 시각 기준 신선도를 표시합니다.</p></div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              자산
+              <select value={effectiveAssetFilter} onChange={(event) => setAssetFilter(event.target.value)} className="h-9 min-w-40 rounded-md border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <option value="ALL">전체 자산</option>
+                {assetOptions.map((asset) => <option key={asset.assetId} value={asset.assetId}>{assetLabel(asset)}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              신선도
+              <select value={freshnessFilter} onChange={(event) => setFreshnessFilter(event.target.value as NewsFreshnessFilter)} className="h-9 min-w-40 rounded-md border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <option value="ALL">전체 신선도</option>
+                <option value="FRESH">최신 · 6시간 이내</option>
+                <option value="TODAY">오늘 · 24시간 이내</option>
+                <option value="STALE">지난 기사</option>
+                <option value="UNKNOWN">시각 미확인</option>
+              </select>
+            </label>
+            <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+              <span className="tabular-nums">{visibleEvents.length} / {news.events.length}건</span>
+              {filterActive && <Button type="button" variant="ghost" size="sm" onClick={() => { setAssetFilter('ALL'); setFreshnessFilter('ALL'); }}>초기화</Button>}
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="divide-y">
-        {news.events.map((event) => {
-          const freshness = NEWS_FRESHNESS[classifyNewsFreshness(event.eventTime)];
+        {visibleEvents.map((event) => {
+          const freshness = NEWS_FRESHNESS[classifyNewsFreshness(event.eventTime, freshnessNow)];
           return <article key={event.id} className="p-5">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{event.category}</span>
@@ -929,7 +964,7 @@ function News({ news, loading }: { news: NewsData; loading: boolean }) {
             </div>
           </article>;
         })}
-        {!news.events.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">수집된 News Event가 없습니다.</div>}
+        {!visibleEvents.length && <div className="grid min-h-56 place-items-center p-8 text-center text-sm text-muted-foreground">{news.events.length ? '선택한 조건에 맞는 News Event가 없습니다.' : '수집된 News Event가 없습니다.'}</div>}
       </div>
     </section>
   </div>;

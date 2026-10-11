@@ -38,6 +38,7 @@
 - NAVER 검색 결과 21일 보관 만료 자동 정리, 분석 전 기사는 `미분석`으로 명시
 - 최근 뉴스 후보를 자산별 우선 노출 상한으로 재배열해 단일 종목의 화면 점유 완화
 - 기사 발행 시각 기준 신선도와 발행·수집 시각을 함께 표시
+- 자산과 신선도 조건을 조합한 News Event 화면 필터
 - News Event·출처·자산 매핑과 반복 수집 중복 방지
 - Sentiment·Impact·Confidence·Duration 분류 및 출처 신뢰도 반영
 - 가격 점수와 분리된 News Score 및 가격/뉴스 Divergence 표시

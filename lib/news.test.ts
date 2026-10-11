@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateNewsScore, classifyNewsFreshness, detectDivergence, diversifyNewsEvents, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
+import { calculateNewsScore, classifyNewsFreshness, detectDivergence, diversifyNewsEvents, filterNewsEvents, isDuplicateEvent, NaverNewsProvider, parseAlphaVantageNews, parseNaverNews, selectPeriodicNewsTarget, selectPeriodicNewsTargets } from './news.ts';
 
 const article = (title: string) => ({ title, category: 'Earnings' as const, eventTime: '2026-09-06T10:00:00Z' });
 assert.equal(isDuplicateEvent(article('Nvidia revenue rises on AI demand'), article('AI demand lifts Nvidia revenue')), true);
@@ -94,5 +94,14 @@ assert.equal(classifyNewsFreshness('2026-10-10T12:00:00Z', freshnessNow), 'TODAY
 assert.equal(classifyNewsFreshness('2026-10-09T23:59:59Z', freshnessNow), 'STALE');
 assert.equal(classifyNewsFreshness('2026-10-12T00:00:00Z', freshnessNow), 'FRESH');
 assert.equal(classifyNewsFreshness('not-a-date', freshnessNow), 'UNKNOWN');
+
+const filterEvents = [
+  { id: 'fresh-a', eventTime: '2026-10-10T20:00:00Z', assets: [{ assetId: 1 }] },
+  { id: 'today-b', eventTime: '2026-10-10T08:00:00Z', assets: [{ assetId: 2 }] },
+  { id: 'stale-a', eventTime: '2026-10-09T00:00:00Z', assets: [{ assetId: 1 }] },
+];
+assert.deepEqual(filterNewsEvents(filterEvents, '1', 'ALL', freshnessNow).map((event) => event.id), ['fresh-a', 'stale-a']);
+assert.deepEqual(filterNewsEvents(filterEvents, 'ALL', 'TODAY', freshnessNow).map((event) => event.id), ['today-b']);
+assert.deepEqual(filterNewsEvents(filterEvents, '1', 'FRESH', freshnessNow).map((event) => event.id), ['fresh-a']);
 
 console.log('news engine: ok');

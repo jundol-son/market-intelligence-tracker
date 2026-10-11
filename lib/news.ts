@@ -10,6 +10,7 @@ export const NEWS_CATEGORIES = [
 export type NewsSentiment = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'MIXED' | 'UNANALYZED';
 export type NewsDuration = 'INTRADAY' | 'SHORT_TERM' | 'MEDIUM_TERM' | 'LONG_TERM';
 export type NewsFreshness = 'FRESH' | 'TODAY' | 'STALE' | 'UNKNOWN';
+export type NewsFreshnessFilter = 'ALL' | NewsFreshness;
 
 export type NewsArticle = {
   title: string;
@@ -219,6 +220,15 @@ export function classifyNewsFreshness(eventTime: string, now = new Date()): News
   if (age <= 6 * 60 * 60 * 1000) return 'FRESH';
   if (age <= 24 * 60 * 60 * 1000) return 'TODAY';
   return 'STALE';
+}
+
+export function filterNewsEvents<T extends { eventTime: string; assets: Array<{ assetId: unknown }> }>(
+  events: T[], assetId: string, freshness: NewsFreshnessFilter, now = new Date(),
+): T[] {
+  return events.filter((event) => (
+    (assetId === 'ALL' || event.assets.some((asset) => String(asset.assetId) === assetId))
+    && (freshness === 'ALL' || classifyNewsFreshness(event.eventTime, now) === freshness)
+  ));
 }
 
 export function selectPeriodicNewsTarget<T>(targets: T[], now: Date): T | undefined {
