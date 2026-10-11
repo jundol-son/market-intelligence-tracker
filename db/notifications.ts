@@ -50,7 +50,7 @@ export async function notificationAdminState(env: NotificationEnv) {
     recipients(env),
     env.DB.prepare(`SELECT id, job_name AS jobName, started_at AS startedAt,
       finished_at AS finishedAt, status, error_message AS errorMessage
-      FROM job_runs ORDER BY id DESC LIMIT 20`).all(),
+      FROM job_runs ORDER BY id DESC LIMIT 100`).all(),
     env.DB.prepare(`SELECT d.id, s.channel, r.report_date AS reportDate, d.status,
       d.error_message AS errorMessage, d.sent_at AS sentAt
       FROM notification_deliveries d JOIN notification_settings s ON s.id=d.setting_id

@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ASSET_TYPES, type AssetInput, type AssetType } from '@/lib/asset';
 import type { AnalyticsState } from '@/lib/analytics';
 import { isCollectable, naverNewsQueryFor, newsTickerFor } from '@/lib/catalog';
+import { summarizeCollectionJobs, type CollectionJob } from '@/lib/collection-status';
 import { summarizeDataFreshness } from '@/lib/data-freshness';
 import { EVENT_STATUSES, EVENT_TYPES, type EconomicEventInput } from '@/lib/economic-event';
 import { summarizeMarketChanges } from '@/lib/market-summary';
@@ -124,15 +125,11 @@ type NotificationSetting = {
   id: number; channel: NotificationChannel; enabled: boolean; sendTime: string;
   timezone: string; updatedAt: string;
 };
-type NotificationJob = {
-  id: number; jobName: string; startedAt: string; finishedAt: string | null;
-  status: string; errorMessage: string | null;
-};
 type NotificationState = {
   settings: NotificationSetting[];
   configured: Record<NotificationChannel, boolean>;
   recipients: EmailRecipient[];
-  jobs: NotificationJob[];
+  jobs: CollectionJob[];
   deliveries: Array<{ id: number; channel: NotificationChannel; reportDate: string; status: string; errorMessage: string | null; sentAt: string | null }>;
 };
 type View = 'dashboard' | 'reports' | 'news' | 'calendar' | 'analytics' | 'watchlist' | 'admin';
@@ -667,7 +664,7 @@ export default function Home() {
                     ? <Analytics data={analytics} loading={loadingAnalytics} />
                     : view === 'watchlist'
                       ? <Watchlist assets={assets} market={market} loading={loading} />
-                      : <Admin assets={assets} loading={loading} token={adminToken} collectingId={collectingId} collectingNewsId={collectingNewsId} bootstrapping={bootstrapping} collectingBatch={collectingBatch} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} notifications={notifications} savingNotifications={savingNotifications} sendingNotifications={sendingNotifications} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onBootstrap={bootstrapAssets} onCollectBatch={collectBatch} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} onNotifications={setNotifications} onLoadNotifications={loadNotifications} onSaveNotifications={saveNotifications} onSendNotifications={sendNotificationsNow} />}
+                      : <Admin assets={assets} loading={loading} token={adminToken} providers={providerHealth} collectingId={collectingId} collectingNewsId={collectingNewsId} bootstrapping={bootstrapping} collectingBatch={collectingBatch} weights={weights} savingWeights={savingWeights} generatingReport={generatingReport} notifications={notifications} savingNotifications={savingNotifications} sendingNotifications={sendingNotifications} onToken={(value) => setAdminToken(value)} onAdd={() => openForm()} onBootstrap={bootstrapAssets} onCollectBatch={collectBatch} onCollect={collectAsset} onCollectNews={collectNews} onEdit={(asset) => openForm(asset)} onDelete={(asset) => setDeleting(asset)} onWeights={setWeights} onLoadWeights={loadWeights} onSaveWeights={saveScoreWeights} onGenerateReport={generateReport} onNotifications={setNotifications} onLoadNotifications={loadNotifications} onSaveNotifications={saveNotifications} onSendNotifications={sendNotificationsNow} />}
         </div>
       </section>
 
@@ -978,10 +975,50 @@ function EconomicCalendar({ events, loading, canManage, onAdd, onEdit, onDelete 
   </div>;
 }
 
-function Admin({ assets, loading, token, collectingId, collectingNewsId, bootstrapping, collectingBatch, weights, savingWeights, generatingReport, notifications, savingNotifications, sendingNotifications, onToken, onAdd, onBootstrap, onCollectBatch, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport, onNotifications, onLoadNotifications, onSaveNotifications, onSendNotifications }: { assets: Asset[]; loading: boolean; token: string; collectingId: number | null; collectingNewsId: number | null; bootstrapping: boolean; collectingBatch: boolean; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; notifications: NotificationState; savingNotifications: boolean; sendingNotifications: boolean; onToken: (value: string) => void; onAdd: () => void; onBootstrap: () => void; onCollectBatch: (provider?: 'KIS') => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void; onNotifications: (value: NotificationState) => void; onLoadNotifications: () => void; onSaveNotifications: () => void; onSendNotifications: () => void }) {
+function operationTime(value: string | null) {
+  if (!value) return '—';
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const date = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : `${normalized}Z`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ko-KR');
+}
+
+function CollectionOperations({ jobs, settings, configured, providers, token, onRefresh }: {
+  jobs: CollectionJob[];
+  settings: NotificationSetting[];
+  configured: NotificationState['configured'];
+  providers: HealthState['providers'];
+  token: string;
+  onRefresh: () => void;
+}) {
+  const pipelines = summarizeCollectionJobs(jobs, settings);
+  const pipelineConfigured = {
+    PRICE: providers.kisConfigured || providers.alphaConfigured,
+    NEWS: providers.naverConfigured,
+    MACRO: true,
+    NOTIFICATION: configured.TELEGRAM || configured.EMAIL,
+  };
+  const statusStyle = (status?: string) => status === 'SUCCESS'
+    ? 'bg-emerald-50 text-emerald-700'
+    : status === 'FAILED' ? 'bg-rose-50 text-rose-700'
+      : status === 'PARTIAL' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600';
+
+  return <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">자동 수집 상태</h2><p className="mt-1 text-sm text-muted-foreground">최근 실행과 성공·오류 이력, 다음 예정 시각을 한곳에서 확인합니다.</p></div><Button variant="outline" onClick={onRefresh} disabled={!token}>상태 새로고침</Button></div>
+    {!jobs.length && <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 상태를 불러오세요.</p>}
+    {jobs.length > 0 && <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{pipelines.map((pipeline) => <article key={pipeline.key} className="rounded-xl border p-4">
+      <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{pipeline.label}</h3><span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusStyle(pipeline.latest?.status)}`}>{pipeline.latest?.status ?? '대기'}</span></div>
+      <dl className="mt-4 space-y-2 text-xs"><div className="flex justify-between gap-3"><dt className="text-muted-foreground">최근 실행</dt><dd className="text-right font-medium">{operationTime(pipeline.latest?.startedAt ?? null)}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-foreground">최근 성공</dt><dd className="text-right font-medium text-emerald-700">{operationTime(pipeline.lastSuccess?.finishedAt ?? pipeline.lastSuccess?.startedAt ?? null)}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-foreground">다음 예정</dt><dd className="text-right font-medium">{operationTime(pipeline.nextRunAt)}</dd></div></dl>
+      {!pipelineConfigured[pipeline.key] && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">Worker 공급자 설정 필요</p>}
+      {pipeline.lastFailure?.errorMessage && <p className="mt-3 line-clamp-3 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700" title={pipeline.lastFailure.errorMessage}>최근 오류 · {pipeline.lastFailure.errorMessage}</p>}
+    </article>)}</div>}
+  </section>;
+}
+
+function Admin({ assets, loading, token, providers, collectingId, collectingNewsId, bootstrapping, collectingBatch, weights, savingWeights, generatingReport, notifications, savingNotifications, sendingNotifications, onToken, onAdd, onBootstrap, onCollectBatch, onCollect, onCollectNews, onEdit, onDelete, onWeights, onLoadWeights, onSaveWeights, onGenerateReport, onNotifications, onLoadNotifications, onSaveNotifications, onSendNotifications }: { assets: Asset[]; loading: boolean; token: string; providers: HealthState['providers']; collectingId: number | null; collectingNewsId: number | null; bootstrapping: boolean; collectingBatch: boolean; weights: ScoreWeight[]; savingWeights: boolean; generatingReport: boolean; notifications: NotificationState; savingNotifications: boolean; sendingNotifications: boolean; onToken: (value: string) => void; onAdd: () => void; onBootstrap: () => void; onCollectBatch: (provider?: 'KIS') => void; onCollect: (asset: Asset) => void; onCollectNews: (asset: Asset) => void; onEdit: (asset: Asset) => void; onDelete: (asset: Asset) => void; onWeights: (weights: ScoreWeight[]) => void; onLoadWeights: () => void; onSaveWeights: () => void; onGenerateReport: () => void; onNotifications: (value: NotificationState) => void; onLoadNotifications: () => void; onSaveNotifications: () => void; onSendNotifications: () => void }) {
   return <div className="space-y-6">
     <section className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end"><div><Label htmlFor="admin-password">관리자 비밀번호</Label><p className="mb-2 mt-1 text-sm text-muted-foreground">브라우저에 저장하지 않으며 HTTPS API 요청 때만 사용합니다.</p><Input id="admin-password" type="password" autoComplete="off" value={token} onChange={(event) => onToken(event.target.value)} placeholder="설정한 비밀번호" className="max-w-md bg-white" /></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onBootstrap} disabled={!token || bootstrapping || collectingBatch}>{bootstrapping && <Loader2 className="animate-spin" />}기본 지표 등록</Button><Button variant="outline" onClick={() => onCollectBatch('KIS')} disabled={!token || collectingBatch || bootstrapping}>{collectingBatch ? <Loader2 className="animate-spin" /> : <RefreshCw />}KIS 연결 자산 최대 10개</Button><Button variant="outline" onClick={() => onCollectBatch()} disabled={!token || collectingBatch || bootstrapping}>{collectingBatch ? <Loader2 className="animate-spin" /> : <RefreshCw />}전체 자산 순환 최대 10개</Button><Button onClick={onAdd} disabled={!token}><Plus /> 자산 등록</Button></div></section>
     <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-sm leading-6 text-blue-950"><strong>24개 지표 순환 수집 · 조회 전용</strong><p className="mt-1">평일 자동 작업은 활성 자산 전체를 갱신합니다. 수동 버튼의 최대 10개는 한 요청의 안전 한도일 뿐 추적 범위가 아니며, 미수집·오래된 자산부터 이어서 처리합니다. 국내 지수·주식·ETF와 미국 주식·ETF 프록시는 KIS를 우선 사용하고, KIS로 대체하기 어려운 환율·미 국채와 뉴스만 Alpha Vantage를 사용합니다. KIS 주문·정정·취소·잔고·계좌 API는 구현하지 않습니다.</p></section>
+    <CollectionOperations jobs={notifications.jobs} settings={notifications.settings} configured={notifications.configured} providers={providers} token={token} onRefresh={onLoadNotifications} />
     <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div><h2 className="font-semibold">Daily Report</h2><p className="mt-1 text-sm text-muted-foreground">최신 점수와 자산 지표를 오늘의 Snapshot으로 한 번만 발행합니다.</p></div><Button onClick={onGenerateReport} disabled={!token || generatingReport}>{generatingReport ? <Loader2 className="animate-spin" /> : <Newspaper />}오늘 리포트 생성</Button></section>
     <section className="rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(30_58_95/5%)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Telegram · Email 알림</h2><p className="mt-1 text-sm text-muted-foreground">매일 설정 시각 이후 최신 리포트를 채널별 한 번만 발송합니다.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={onLoadNotifications} disabled={!token}>불러오기</Button><Button variant="outline" onClick={onSendNotifications} disabled={!token || sendingNotifications || !notifications.settings.some((item) => item.enabled)}>{sendingNotifications && <Loader2 className="animate-spin" />}지금 발송</Button><Button onClick={onSaveNotifications} disabled={!token || savingNotifications || notifications.settings.length === 0}>{savingNotifications && <Loader2 className="animate-spin" />}설정 저장</Button></div></div>
       {notifications.settings.length === 0 ? <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">관리자 비밀번호 입력 후 설정을 불러오세요.</p> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{notifications.settings.map((setting) => <article key={setting.channel} className="rounded-xl border p-4"><div className="flex items-center justify-between"><div><p className="font-semibold">{setting.channel === 'TELEGRAM' ? 'Telegram 요약' : 'Email 상세 리포트'}</p><p className={`mt-1 text-xs font-semibold ${notifications.configured[setting.channel] ? 'text-emerald-600' : 'text-amber-600'}`}>{notifications.configured[setting.channel] ? '발송 연결됨' : 'Worker 설정 필요'}</p></div><Switch aria-label={`${setting.channel} 알림 활성`} checked={setting.enabled} disabled={!notifications.configured[setting.channel]} onCheckedChange={(enabled) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, enabled } : item) })} /></div><div className="mt-4 grid grid-cols-2 gap-3"><div><Label htmlFor={`notify-time-${setting.channel}`}>발송 시각</Label><Input id={`notify-time-${setting.channel}`} type="time" value={setting.sendTime} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, sendTime: event.target.value } : item) })} /></div><div><Label htmlFor={`notify-zone-${setting.channel}`}>시간대</Label><Input id={`notify-zone-${setting.channel}`} value={setting.timezone} onChange={(event) => onNotifications({ ...notifications, settings: notifications.settings.map((item) => item.channel === setting.channel ? { ...item, timezone: event.target.value } : item) })} /></div></div><p className="mt-3 text-xs leading-5 text-muted-foreground">{setting.channel === 'TELEGRAM' ? 'TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID · TELEGRAM_WEBHOOK_SECRET' : '무료 Resend: RESEND_API_KEY · EMAIL_TO (발신 도메인이 있으면 EMAIL_FROM)'}</p></article>)}</div>}
